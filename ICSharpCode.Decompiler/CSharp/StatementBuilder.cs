@@ -1368,7 +1368,6 @@ namespace ICSharpCode.Decompiler.CSharp
 
 					if (blockStatement.LastOrDefault() is ContinueStatement continueStmt)
 						continueStmt.Remove();
-					DeclareLocalFunctions(currentFunction, container, blockStatement);
 					return new WhileStatement(new PrimitiveExpression(true), blockStatement);
 				case ContainerKind.While:
 					continueTarget = container.EntryPoint;
