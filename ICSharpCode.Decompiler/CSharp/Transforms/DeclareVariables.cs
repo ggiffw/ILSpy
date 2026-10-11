@@ -666,7 +666,8 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 						type = new SimpleType("var");
 						isOutVar = true;
 					}
-					else if (dirExpr.Annotation<UseImplicitlyTypedOutAnnotation>() != null
+					else if (context.Settings.ImplicitlyTypedOutVariables
+						&& dirExpr.Annotation<UseImplicitlyTypedOutAnnotation>() != null
 						&& !IsReferencedWithinDeclaringCall(dirExpr, v))
 					{
 						type = new SimpleType("var");

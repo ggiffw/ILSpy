@@ -40,6 +40,12 @@ namespace ICSharpCode.Decompiler.Tests
 		}
 
 		[Test]
+		public async Task ExplicitOutTypes([ValueSource(nameof(outTypeOptions))] CompilerOptions options)
+		{
+			await RunCS(options: options, configureDecompiler: settings => settings.ImplicitlyTypedOutVariables = false);
+		}
+
+		[Test]
 		public void AllFilesHaveTests()
 		{
 			var testNames = typeof(CorrectnessTestRunner).GetMethods()
@@ -163,6 +169,16 @@ namespace ICSharpCode.Decompiler.Tests
 			CompilerOptions.Optimize | CompilerOptions.UseRoslynLatest | CompilerOptions.TargetNet40,
 			CompilerOptions.UseRoslyn2_10_0,
 			CompilerOptions.Optimize | CompilerOptions.UseRoslyn2_10_0,
+			CompilerOptions.UseRoslyn3_11_0,
+			CompilerOptions.Optimize | CompilerOptions.UseRoslyn3_11_0,
+			CompilerOptions.UseRoslyn4_14_0,
+			CompilerOptions.Optimize | CompilerOptions.UseRoslyn4_14_0,
+			CompilerOptions.UseRoslynLatest,
+			CompilerOptions.Optimize | CompilerOptions.UseRoslynLatest,
+		}, executesCompiledOutput: true);
+
+		static readonly CompilerOptions[] outTypeOptions = Tester.SupportedOnCurrentPlatform(new[]
+		{
 			CompilerOptions.UseRoslyn3_11_0,
 			CompilerOptions.Optimize | CompilerOptions.UseRoslyn3_11_0,
 			CompilerOptions.UseRoslyn4_14_0,
@@ -458,7 +474,7 @@ namespace ICSharpCode.Decompiler.Tests
 			await RunCS(options: options);
 		}
 
-		async Task RunCS([CallerMemberName] string testName = null, CompilerOptions options = CompilerOptions.UseDebug)
+		async Task RunCS([CallerMemberName] string testName = null, CompilerOptions options = CompilerOptions.UseDebug, Action<DecompilerSettings> configureDecompiler = null)
 		{
 			if ((options & CompilerOptions.UseRoslynMask) != 0 && (options & CompilerOptions.TargetNet40) == 0)
 				options |= CompilerOptions.UseTestRunner;
@@ -470,7 +486,9 @@ namespace ICSharpCode.Decompiler.Tests
 			{
 				outputFile = await Tester.CompileCSharp(Path.Combine(TestCasePath, testFileName), options,
 					outputFileName: testOutputFileName).ConfigureAwait(false);
-				string decompiledCodeFile = await Tester.DecompileCSharp(outputFile.PathToAssembly, Tester.GetSettings(options)).ConfigureAwait(false);
+				var settings = Tester.GetSettings(options);
+				configureDecompiler?.Invoke(settings);
+				string decompiledCodeFile = await Tester.DecompileCSharp(outputFile.PathToAssembly, settings).ConfigureAwait(false);
 				if ((options & CompilerOptions.UseMcsMask) != 0)
 				{
 					// For second pass, use roslyn instead of mcs.

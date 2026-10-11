@@ -557,6 +557,16 @@ namespace ICSharpCode.Decompiler
 		public partial bool OutVariables { get; set; }
 
 		/// <summary>
+		/// Gets/Sets whether inferable out variable declarations may use var.
+		/// Anonymous types still require var when anonymous type recovery is enabled.
+		/// Only has an effect if <see cref="OutVariables"/> is enabled.
+		/// </summary>
+		[Category("DecompilerSettings.Other")]
+		[Description("Allow implicitly typed out variable declarations")]
+		[DecompilerSetting]
+		public partial bool ImplicitlyTypedOutVariables { get; set; }
+
+		/// <summary>
 		/// Gets/Sets whether discards should be used when possible.
 		/// Only has an effect if <see cref="OutVariables"/> is enabled.
 		/// </summary>
