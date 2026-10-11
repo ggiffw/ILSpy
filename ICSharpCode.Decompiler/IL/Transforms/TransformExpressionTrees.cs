@@ -1987,12 +1987,11 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 		/// =&gt;
 		/// binary.sub.i4(ldc.i4 0, argument)
 		///
-		/// The built-in form has no MethodInfo: the operation is expressed as a binary
-		/// instruction with a zero literal on the left. The literal is picked in the returned
-		/// builder from the stack type inferred for the converted argument: ldc.i4 0 for I4,
-		/// ldc.i8 0 for I8, conv i4-&gt;i for I, ldc.f4/ldc.f8 0 for F4/F8 and ldc.decimal 0
-		/// for System.Decimal; any other stack type is rejected. A nullable argument type
-		/// produces a lifted instruction over the underlying type.
+		/// The built-in form has no MethodInfo. Floating-point negation uses FloatNeg
+		/// to preserve signed zero and NaN payloads. Explicit NegateChecked nodes for
+		/// floating-point values retain the API call because checked(-value) produces
+		/// a Negate node in C#. Other supported numeric types use subtraction from zero.
+		/// A nullable argument produces a lifted instruction over the underlying type.
 		///
 		/// call Negate(argumentExpr, castclass System.Reflection.MethodInfo(call GetMethodFromHandle(ldmembertoken op_UnaryNegation)))
 		/// =&gt;
@@ -2029,11 +2028,12 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 								left = new Conv(new LdcI4(0), PrimitiveType.I!, false, Sign.None);
 								break;
 							case StackType.F4:
-								left = new LdcF4(0);
-								break;
 							case StackType.F8:
-								left = new LdcF8(0);
-								break;
+								if (isChecked == true)
+									return null;
+								return new FloatNeg(argumentInst,
+									isLifted: NullableType.IsNullable(argumentType),
+									stackType: underlyingType.GetStackType());
 							case StackType.VT when underlyingType.IsKnownType(KnownTypeCode.Decimal):
 								left = new LdcDecimal(0);
 								break;

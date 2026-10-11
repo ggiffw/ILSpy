@@ -1,4 +1,5 @@
 using System;
+using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 
 namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
@@ -161,6 +162,37 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 				try { Console.WriteLine("subtract:{0}:{1}", SingleBits(SubtractCalls(fault)), trace); }
 				catch (InvalidOperationException) { Console.WriteLine("subtract:throw:{0}", trace); }
 			}
+			Expression<Func<float, float>> negateTree = value => -value;
+			Expression<Func<float, float>> subtractTree = value => 0f - value;
+			Expression<Func<float?, float?>> nullableTree = value => -value;
+			Expression<Func<float, float>> checkedTree = value => checked(-value);
+			Console.WriteLine("trees:{0}:{1}:{2}:{3}", negateTree.Body.NodeType, subtractTree.Body.NodeType, nullableTree.Body.NodeType, checkedTree.Body.NodeType);
+			var negateDelegate = negateTree.Compile();
+			var subtractDelegate = subtractTree.Compile();
+			var nullableDelegate = nullableTree.Compile();
+			var checkedDelegate = checkedTree.Compile();
+			foreach (int bits in singles)
+			{
+				float value = BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
+				Console.WriteLine("tree-value:{0}:{1}:{2}:{3}", SingleBits(negateDelegate(value)), SingleBits(subtractDelegate(value)), SingleBits(nullableDelegate(value).Value), SingleBits(checkedDelegate(value)));
+			}
+			Console.WriteLine("tree-null:{0}", nullableDelegate(null).HasValue);
+			Expression<Func<double, double>> negateDoubleTree = value => -value;
+			Expression<Func<double, double>> subtractDoubleTree = value => 0d - value;
+			Expression<Func<double?, double?>> nullableDoubleTree = value => -value;
+			Console.WriteLine("double-trees:{0}:{1}:{2}", negateDoubleTree.Body.NodeType, subtractDoubleTree.Body.NodeType, nullableDoubleTree.Body.NodeType);
+			var negateDoubleDelegate = negateDoubleTree.Compile();
+			var subtractDoubleDelegate = subtractDoubleTree.Compile();
+			var nullableDoubleDelegate = nullableDoubleTree.Compile();
+			foreach (long bits in doubles)
+			{
+				double value = BitConverter.Int64BitsToDouble(bits);
+				Console.WriteLine("double-tree-value:{0}:{1}:{2}", DoubleBits(negateDoubleDelegate(value)), DoubleBits(subtractDoubleDelegate(value)), DoubleBits(nullableDoubleDelegate(value).Value));
+			}
+			Console.WriteLine("double-tree-null:{0}", nullableDoubleDelegate(null).HasValue);
+			var parameter = Expression.Parameter(typeof(float), "value");
+			var explicitlyCheckedTree = Expression.Lambda<Func<float, float>>(Expression.NegateChecked(parameter), parameter);
+			Console.WriteLine("explicitly-checked-tree:{0}:{1}", explicitlyCheckedTree.Body.NodeType, SingleBits(explicitlyCheckedTree.Compile()(0f)));
 		}
 	}
 }
