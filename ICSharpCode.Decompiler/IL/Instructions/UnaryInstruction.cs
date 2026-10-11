@@ -23,6 +23,47 @@ using ICSharpCode.Decompiler.TypeSystem;
 
 namespace ICSharpCode.Decompiler.IL
 {
+	partial class FloatNeg : ILiftableInstruction
+	{
+		public FloatNeg(ILInstruction arg) : this(arg, false, arg.ResultType)
+		{
+		}
+
+		public FloatNeg(ILInstruction arg, bool isLifted, StackType stackType) : base(OpCode.FloatNeg, arg)
+		{
+			IsLifted = isLifted;
+			UnderlyingResultType = stackType;
+		}
+
+		public bool IsLifted { get; }
+		public StackType UnderlyingResultType { get; }
+		public override StackType ResultType => IsLifted ? StackType.VT : UnderlyingResultType;
+
+		public override IType InferType(ICompilation compilation)
+		{
+			var type = compilation.FindType(UnderlyingResultType);
+			return IsLifted ? NullableType.Create(compilation, type) : type;
+		}
+
+		internal override void CheckInvariant(ILPhase phase, ICompilation compilation)
+		{
+			base.CheckInvariant(phase, compilation);
+			Debug.Assert(UnderlyingResultType == StackType.F4 || UnderlyingResultType == StackType.F8);
+			Debug.Assert(Argument.ResultType == ResultType);
+		}
+
+		protected override void WriteToCore(ITextOutput output, ILAstWritingOptions options)
+		{
+			WriteILRange(output, options);
+			output.Write(OpCode);
+			if (IsLifted)
+				output.Write(".lifted");
+			output.Write('(');
+			Argument.WriteTo(output, options);
+			output.Write(')');
+		}
+	}
+
 	partial class BitNot : ILiftableInstruction
 	{
 		public BitNot(ILInstruction arg) : base(OpCode.BitNot, arg)

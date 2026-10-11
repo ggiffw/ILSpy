@@ -788,6 +788,17 @@ namespace ICSharpCode.Decompiler.CSharp
 				.WithRR(new TypeOfResolveResult(compilation.FindType(KnownTypeCode.RuntimeTypeHandle), inst.Type));
 		}
 
+		protected internal override TranslatedExpression VisitFloatNeg(FloatNeg inst, TranslationContext context)
+		{
+			IType type = compilation.FindType(inst.UnderlyingResultType);
+			if (inst.IsLifted)
+				type = NullableType.Create(compilation, type);
+			var argument = Translate(inst.Argument).ConvertTo(type, this);
+			return new UnaryOperatorExpression(UnaryOperatorType.Minus, argument)
+				.WithRR(resolver.ResolveUnaryOperator(UnaryOperatorType.Minus, argument.ResolveResult))
+				.WithILInstruction(inst);
+		}
+
 		protected internal override TranslatedExpression VisitBitNot(BitNot inst, TranslationContext context)
 		{
 			var argument = Translate(inst.Argument);

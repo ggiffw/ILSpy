@@ -97,6 +97,7 @@
 			MatchCondition("this.TargetKind == o.TargetKind"),
 			MatchCondition("Target.PerformMatch(o.Target, ref match)"),
 			MatchCondition("Value.PerformMatch(o.Value, ref match)")),
+		new OpCode("float.neg", "Floating-point sign reversal, distinct from subtraction from zero.", Unary, CustomConstructor, MatchCondition("IsLifted == o.IsLifted && UnderlyingResultType == o.UnderlyingResultType")),
 		new OpCode("bit.not", "Bitwise NOT", Unary, CustomConstructor, MatchCondition("IsLifted == o.IsLifted && UnderlyingResultType == o.UnderlyingResultType")),
 		new OpCode("arglist", "Retrieves the RuntimeArgumentHandle.", NoArguments, ResultType("RuntimeArgumentHandle", "VT")),
 		new OpCode("br", "Unconditional branch. <c>goto target;</c>",

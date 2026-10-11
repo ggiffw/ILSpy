@@ -882,6 +882,15 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return (newInst, bits);
 				}
 			}
+			else if (inst is FloatNeg neg)
+			{
+				var (arg, bits) = DoLift(neg.Argument);
+				if (arg != null)
+				{
+					var newInst = new FloatNeg(arg, isLifted: true, stackType: neg.UnderlyingResultType).WithILRange(neg);
+					return (newInst, bits);
+				}
+			}
 			else if (inst is BitNot bitnot)
 			{
 				var (arg, bits) = DoLift(bitnot.Argument);

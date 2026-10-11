@@ -34,6 +34,25 @@ namespace ICSharpCode.Decompiler.Tests
 	[TestFixture]
 	class DataFlowTest
 	{
+		[TestCase(StackType.F4)]
+		[TestCase(StackType.F8)]
+		public void FloatingNegationRetainsIdentityAndOperandEffects(StackType type)
+		{
+			ILInstruction value = type == StackType.F4 ? (ILInstruction)new LdcF4(1) : new LdcF8(1);
+			var neg = new FloatNeg(new InvalidExpression { ExpectedResultType = type });
+			var clone = (FloatNeg)neg.Clone();
+			Assert.That(neg.ResultType, Is.EqualTo(type));
+			Assert.That(neg.DirectFlags, Is.EqualTo(InstructionFlags.None));
+			Assert.That(neg.HasFlag(InstructionFlags.MayThrow), Is.True);
+			Assert.That(neg.HasFlag(InstructionFlags.SideEffect), Is.True);
+			Assert.That(neg.Children.Count(), Is.EqualTo(1));
+			Assert.That(clone.Argument, Is.Not.SameAs(neg.Argument));
+			Assert.That(neg.Match(clone).Success, Is.True);
+			ILInstruction zero = type == StackType.F4 ? (ILInstruction)new LdcF4(0) : new LdcF8(0);
+			var subtraction = new BinaryNumericInstruction(BinaryNumericOperator.Sub, zero, value.Clone(), false, Sign.None);
+			Assert.That(neg.Match(subtraction).Success, Is.False);
+		}
+
 		class RDTest : ReachingDefinitionsVisitor
 		{
 			ILVariable v;

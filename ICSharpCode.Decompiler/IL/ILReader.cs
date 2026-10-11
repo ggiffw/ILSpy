@@ -774,9 +774,8 @@ namespace ICSharpCode.Decompiler.IL
 				case StackType.I8:
 					return Push(new BinaryNumericInstruction(BinaryNumericOperator.Sub, new LdcI8(0), Pop(), checkForOverflow: false, sign: Sign.None));
 				case StackType.F4:
-					return Push(new BinaryNumericInstruction(BinaryNumericOperator.Sub, new LdcF4(0), Pop(), checkForOverflow: false, sign: Sign.None));
 				case StackType.F8:
-					return Push(new BinaryNumericInstruction(BinaryNumericOperator.Sub, new LdcF8(0), Pop(), checkForOverflow: false, sign: Sign.None));
+					return Push(new FloatNeg(Pop()));
 				default:
 					Warn("Unsupported input type for neg.");
 					goto case StackType.I4;

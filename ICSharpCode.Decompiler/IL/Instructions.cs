@@ -54,6 +54,8 @@ namespace ICSharpCode.Decompiler.IL
 		UserDefinedCompoundAssign,
 		/// <summary>Common instruction for dynamic compound assignments.</summary>
 		DynamicCompoundAssign,
+		/// <summary>Floating-point sign reversal, distinct from subtraction from zero.</summary>
+		FloatNeg,
 		/// <summary>Bitwise NOT</summary>
 		BitNot,
 		/// <summary>Retrieves the RuntimeArgumentHandle.</summary>
@@ -1174,6 +1176,31 @@ namespace ICSharpCode.Decompiler.IL
 		{
 			var o = other as DynamicCompoundAssign;
 			return o != null && this.EvalMode == o.EvalMode && this.TargetKind == o.TargetKind && Target.PerformMatch(o.Target, ref match) && Value.PerformMatch(o.Value, ref match);
+		}
+	}
+}
+namespace ICSharpCode.Decompiler.IL
+{
+	/// <summary>Floating-point sign reversal, distinct from subtraction from zero.</summary>
+	public sealed partial class FloatNeg : UnaryInstruction
+	{
+
+		public override void AcceptVisitor(ILVisitor visitor)
+		{
+			visitor.VisitFloatNeg(this);
+		}
+		public override T AcceptVisitor<T>(ILVisitor<T> visitor)
+		{
+			return visitor.VisitFloatNeg(this);
+		}
+		public override T AcceptVisitor<C, T>(ILVisitor<C, T> visitor, C context)
+		{
+			return visitor.VisitFloatNeg(this, context);
+		}
+		protected internal override bool PerformMatch(ILInstruction? other, ref Patterns.Match match)
+		{
+			var o = other as FloatNeg;
+			return o != null && this.Argument.PerformMatch(o.Argument, ref match) && IsLifted == o.IsLifted && UnderlyingResultType == o.UnderlyingResultType;
 		}
 	}
 }
@@ -7184,6 +7211,10 @@ namespace ICSharpCode.Decompiler.IL
 		{
 			Default(inst);
 		}
+		protected internal virtual void VisitFloatNeg(FloatNeg inst)
+		{
+			Default(inst);
+		}
 		protected internal virtual void VisitBitNot(BitNot inst)
 		{
 			Default(inst);
@@ -7591,6 +7622,10 @@ namespace ICSharpCode.Decompiler.IL
 			return Default(inst);
 		}
 		protected internal virtual T VisitDynamicCompoundAssign(DynamicCompoundAssign inst)
+		{
+			return Default(inst);
+		}
+		protected internal virtual T VisitFloatNeg(FloatNeg inst)
 		{
 			return Default(inst);
 		}
@@ -8004,6 +8039,10 @@ namespace ICSharpCode.Decompiler.IL
 		{
 			return Default(inst, context);
 		}
+		protected internal virtual T VisitFloatNeg(FloatNeg inst, C context)
+		{
+			return Default(inst, context);
+		}
 		protected internal virtual T VisitBitNot(BitNot inst, C context)
 		{
 			return Default(inst, context);
@@ -8376,6 +8415,7 @@ namespace ICSharpCode.Decompiler.IL
 			"numeric.compound",
 			"user.compound",
 			"dynamic.compound",
+			"float.neg",
 			"bit.not",
 			"arglist",
 			"br",
