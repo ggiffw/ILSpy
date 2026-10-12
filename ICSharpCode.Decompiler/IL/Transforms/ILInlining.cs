@@ -685,6 +685,14 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			}
 
 			var parent = loadInst.Parent;
+			if (parent is Box boxing && boxing.Argument == loadInst
+				&& inlinedExpression is IfInstruction conditional
+				&& (v.Type.IsKnownType(KnownTypeCode.Single) || v.Type.IsKnownType(KnownTypeCode.Double))
+				&& boxing.Type.Equals(v.Type) && conditional.CSharpType?.Equals(v.Type) == true) {
+				// The scalar store adds no conversion before boxing. Keep the
+				// conditional lazy; FindLoadInNext already proved evaluation order.
+				return true;
+			}
 			if (NullableLiftingTransform.MatchNullableCtor(parent, out _, out _))
 			{
 				// inline into nullable ctor call in lifted operator
