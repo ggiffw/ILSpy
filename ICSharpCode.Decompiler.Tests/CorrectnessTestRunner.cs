@@ -34,6 +34,12 @@ namespace ICSharpCode.Decompiler.Tests
 		static readonly string TestCasePath = Tester.TestCasePath + "/Correctness";
 
 		[Test]
+		public async Task GuardedNumericCalls([ValueSource(nameof(roslyn3OrNewerOptions))] CompilerOptions options)
+		{
+			await Run(options);
+		}
+
+		[Test]
 		public async Task ConditionalBoxing([ValueSource(nameof(roslyn4OrNewerOptions))] CompilerOptions options)
 		{
 			await Run(options);

@@ -726,6 +726,15 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return true; // inline size-expressions into localloc.span
 				case OpCode.Call:
 				case OpCode.CallVirt:
+					if ((v.Type.IsKnownType(KnownTypeCode.Single) || v.Type.IsKnownType(KnownTypeCode.Double))
+						&& inlinedExpression is CallInstruction producer && producer.Method.ReturnType.Equals(v.Type)
+						&& parent is CallInstruction consumer && consumer.Arguments.LastOrDefault() == loadInst
+						&& consumer.Method.Parameters.LastOrDefault()?.Type.Equals(v.Type) == true) {
+						// FindLoadInNext proved that preceding arguments can be crossed.
+						// The exact scalar return/parameter types retain the call boundary;
+						// there is no arithmetic or narrowing store to remove.
+						return true;
+					}
 					// Aggressive inline into property/indexer getter calls for compound assignment calls
 					// (The compiler generates locals for these because it doesn't want to evalute the args twice for getter+setter)
 					if (parent.SlotInfo == CompoundAssignmentInstruction.TargetSlot)

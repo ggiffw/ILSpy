@@ -27,6 +27,8 @@ using System.Diagnostics.CodeAnalysis;
 
 using ICSharpCode.Decompiler.CSharp.Syntax;
 using ICSharpCode.Decompiler.CSharp.Syntax.PatternMatching;
+using ICSharpCode.Decompiler.Semantics;
+using ICSharpCode.Decompiler.TypeSystem;
 
 namespace ICSharpCode.Decompiler.CSharp.Transforms
 {
@@ -36,6 +38,40 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 		TransformContext context;
 		bool hasNamespace;
 		NamespaceDeclaration? singleNamespaceDeclaration;
+
+		public override void VisitBlockStatement(BlockStatement block)
+		{
+			base.VisitBlockStatement(block);
+			if (block.Statements.Count < 3 || block.Statements.Last() is not ContinueStatement
+				|| block.Statements.First() is not IfElseStatement { FalseStatement: null,
+					Condition: UnaryOperatorExpression { Operator: UnaryOperatorType.Not } negation } guard
+				|| guard.TrueStatement is not BlockStatement { Statements.Count: 1 } exitBlock
+				|| exitBlock.Statements.Single() is not ContinueStatement
+				|| negation.GetResolveResult() is not OperatorResolveResult { UserDefinedOperatorMethod: null, IsLiftedOperator: false } result
+				|| result.OperatorType != System.Linq.Expressions.ExpressionType.Not || !result.Type.IsKnownType(KnownTypeCode.Boolean)
+				|| !block.Ancestors.Any(n => n is WhileStatement or DoWhileStatement or ForStatement or ForeachStatement))
+				return;
+			var moved = block.Statements.Skip(1).SkipLast(1).ToArray();
+			var nodes = moved.SelectMany(s => s.DescendantsAndSelf).ToHashSet();
+			if (block.Descendants.Any(n => n is LabelStatement or GotoStatement or LocalFunctionDeclarationStatement or LambdaExpression or AnonymousMethodExpression))
+				return;
+			var locals = nodes.OfType<VariableInitializer>().Select(v => v.GetILVariable()).ToArray();
+			if (locals.Any(v => v == null))
+				return;
+			if (locals.Length != 0) {
+				var member = block.Ancestors.OfType<MethodDeclaration>().FirstOrDefault();
+				if (member == null || member.Descendants.OfType<IdentifierExpression>().Any(i => locals.Contains(i.GetILVariable()) && !nodes.Contains(i)))
+					return;
+			}
+			// Both exits target the same enclosing loop. Narrowing the guarded
+			// region preserves every evaluation and leaves the final exit in place.
+			context.Step("Merge equivalent Boolean guard exits", block);
+			var body = new BlockStatement();
+			foreach (var statement in moved) body.Add(statement.Detach());
+			guard.Condition = negation.Expression.Detach();
+			guard.TrueStatement = body;
+			context.EndStep(block);
+		}
 
 		public override void VisitSyntaxTree(SyntaxTree syntaxTree)
 		{
