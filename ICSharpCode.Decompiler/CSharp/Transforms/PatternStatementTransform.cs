@@ -106,7 +106,41 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			AstNode? simplifiedIfElse = SimplifyCascadingIfElseStatements(ifElseStatement);
 			if (simplifiedIfElse != null)
 				return simplifiedIfElse;
+			if (ifElseStatement.TrueStatement is not null && ifElseStatement.FalseStatement is not null
+				&& PositiveBooleanCall(ifElseStatement.Condition) is { } condition) {
+				context.Step("Use positive Boolean call condition", ifElseStatement);
+				var trueStatement = ifElseStatement.TrueStatement.Detach();
+				ifElseStatement.TrueStatement = ifElseStatement.FalseStatement.Detach();
+				ifElseStatement.FalseStatement = trueStatement;
+				ifElseStatement.Condition = condition.Detach();
+				context.EndStep(ifElseStatement);
+			}
 			return base.VisitIfElseStatement(ifElseStatement);
+		}
+
+		public override AstNode VisitConditionalExpression(ConditionalExpression expression)
+		{
+			if (PositiveBooleanCall(expression.Condition) is { } condition) {
+				context.Step("Use positive Boolean call condition", expression);
+				var trueExpression = expression.TrueExpression.Detach();
+				expression.TrueExpression = expression.FalseExpression.Detach();
+				expression.FalseExpression = trueExpression;
+				expression.Condition = condition.Detach();
+				context.EndStep(expression);
+			}
+			return base.VisitConditionalExpression(expression);
+		}
+
+		static Expression? PositiveBooleanCall(Expression condition)
+		{
+			// Swapping exclusive arms preserves the original call, including overloaded
+			// equality. Replacing it with an inequality operator would not do so.
+			if (condition is not UnaryOperatorExpression { Operator: UnaryOperatorType.Not, Expression: InvocationExpression call }
+				|| condition.GetResolveResult() is not OperatorResolveResult { OperatorType: System.Linq.Expressions.ExpressionType.Not, UserDefinedOperatorMethod: null, IsLiftedOperator: false } result
+				|| !result.Type.IsKnownType(KnownTypeCode.Boolean) || !call.GetResolveResult().Type.IsKnownType(KnownTypeCode.Boolean)
+				|| condition.Ancestors.OfType<LambdaExpression>().Any(lambda => lambda.Annotation<IL.ILFunction>()?.Kind == IL.ILFunctionKind.ExpressionTree))
+				return null;
+			return call;
 		}
 
 		public override AstNode VisitPropertyDeclaration(PropertyDeclaration propertyDeclaration)

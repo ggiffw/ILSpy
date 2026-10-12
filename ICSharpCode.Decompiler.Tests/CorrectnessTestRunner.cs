@@ -34,6 +34,12 @@ namespace ICSharpCode.Decompiler.Tests
 		static readonly string TestCasePath = Tester.TestCasePath + "/Correctness";
 
 		[Test]
+		public async Task PositiveBooleanCallConditions([ValueSource(nameof(roslyn3OrNewerOptions))] CompilerOptions options)
+		{
+			await Run(options);
+		}
+
+		[Test]
 		public async Task LoopLocalFunctions([ValueSource(nameof(roslyn2OrNewerOptions))] CompilerOptions options)
 		{
 			await Run(options);
