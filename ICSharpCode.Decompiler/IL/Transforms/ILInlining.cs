@@ -728,7 +728,10 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 				case OpCode.CallVirt:
 					if ((v.Type.IsKnownType(KnownTypeCode.Single) || v.Type.IsKnownType(KnownTypeCode.Double))
 						&& inlinedExpression is CallInstruction producer && producer.Method.ReturnType.Equals(v.Type)
+						&& (producer.Method.IsStatic || producer.Method.DeclaringType.IsReferenceType == true && producer.Arguments.FirstOrDefault() is LdLoc { Variable.Type.IsReferenceType: true })
 						&& parent is CallInstruction consumer && consumer.Arguments.LastOrDefault() == loadInst
+						&& (consumer.Method.IsStatic || consumer.Method.DeclaringType.IsReferenceType == true && consumer.Arguments.FirstOrDefault() is LdLoc { Variable.Type.IsReferenceType: true })
+						&& consumer.Arguments.Count == consumer.Method.Parameters.Count + (consumer.Method.IsStatic ? 0 : 1)
 						&& consumer.Method.Parameters.LastOrDefault()?.Type.Equals(v.Type) == true) {
 						// FindLoadInNext proved that preceding arguments can be crossed.
 						// The exact scalar return/parameter types retain the call boundary;

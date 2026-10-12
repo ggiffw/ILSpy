@@ -34,6 +34,31 @@ namespace ICSharpCode.Decompiler.Tests.Output
 	public class GuardExitNormalizationTests
 	{
 		[Test]
+		public void PreserveValueTypeReceiverSnapshot()
+		{
+			var decompiler = new CSharpDecompiler(typeof(GuardExitNormalizationTests).Assembly.Location,
+				new DecompilerSettings { ThrowOnAssemblyResolveErrors = false });
+			var tree = decompiler.DecompileType(new FullTypeName(typeof(ScalarSnapshotFixture).FullName));
+			var method = tree.Descendants.OfType<MethodDeclaration>().Single(m => m.Name == "Invoke");
+			Assert.That(method.Descendants.OfType<VariableDeclarationStatement>().Count(v => v.Type is PrimitiveType { Keyword: "float" }), Is.EqualTo(1));
+		}
+
+		public static class ScalarSnapshotFixture
+		{
+			public struct Consumer
+			{
+				public float Bias;
+				public float Use(float value) { return value + Bias; }
+			}
+			static float Read(float value) { return value; }
+			public static float Invoke(Consumer consumer, float value)
+			{
+				float snapshot = Read(value);
+				return consumer.Use(snapshot);
+			}
+		}
+
+		[Test]
 		public void NormalizeOnlyEquivalentBooleanGuardExits()
 		{
 			var decompiler = new CSharpDecompiler(typeof(GuardExitNormalizationTests).Assembly.Location,
