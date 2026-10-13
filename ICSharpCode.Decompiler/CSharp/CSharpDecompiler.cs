@@ -109,6 +109,7 @@ namespace ICSharpCode.Decompiler.CSharp
 				new RemoveDeadVariableInit(),
 				new ControlFlowSimplification(), //split variables may enable new branch to leave inlining
 				new DynamicCallSiteTransform(),
+				new NullCoalescingTransform(),
 				new SwitchDetection(),
 				new SwitchOnStringTransform(),
 				new SwitchOnNullableTransform(),

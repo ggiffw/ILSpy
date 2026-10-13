@@ -32,8 +32,110 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 	/// 
 	/// The ?? operator for nullable value types is handled by NullableLiftingTransform.
 	/// </summary>
-	public class NullCoalescingTransform : IStatementTransform
+	public class NullCoalescingTransform : IStatementTransform, IILTransform
 	{
+		void IILTransform.Run(ILFunction function, ILTransformContext context)
+		{
+			if (function.Body is not BlockContainer container)
+				return;
+			HashSet<Block> initiallyReachable = null;
+			foreach (var block in container.Blocks.ToArray())
+			{
+				context.CancellationToken.ThrowIfCancellationRequested();
+				if (block.Instructions.FirstOrDefault() is not StLoc store
+					|| store.Variable.Kind != VariableKind.Local && store.Variable.Kind != VariableKind.StackSlot
+					|| store.Variable.Type.IsReferenceType != true || store.Variable.AddressCount != 0
+					|| !HasOnlyTerminalNullUses(store.Variable, container))
+					continue;
+				int budget = 256;
+				if (!TryBuildTerminalFallback(block, store.Variable, container, new HashSet<Block>(), ref budget, out var value))
+					continue;
+				context.Step("NullCoalescingTransform: terminal shared fallback", block);
+				initiallyReachable ??= container.TopologicalSort(deleteUnreachableBlocks: true).ToHashSet();
+				var result = new Leave(container, value);
+				result.AddILRange(block);
+				block.Instructions.Clear();
+				block.Instructions.Add(result);
+			}
+			if (initiallyReachable != null)
+			{
+				var stillReachable = container.TopologicalSort(deleteUnreachableBlocks: true).ToHashSet();
+				// Preserve pre-existing unreachable code when RemoveDeadCode is off.
+				container.Blocks.RemoveAll(b => initiallyReachable.Contains(b) && !stillReachable.Contains(b));
+				container.SortBlocks();
+			}
+		}
+
+		// The local is a control-flow temporary, never observed by a callback,
+		// exception handler or another expression. Every successful path returns it.
+		static bool HasOnlyTerminalNullUses(ILVariable variable, BlockContainer container)
+		{
+			foreach (var load in variable.LoadInstructions)
+			{
+				if (load.Parent is Leave leave && leave.IsLeavingFunction && leave.Parent is Block returned
+					&& returned.Parent == container && returned.Instructions.Count == 1)
+					continue;
+				if (load.Parent is Comp comp && comp.Parent is IfInstruction test && test.Parent is Block block
+					&& block.Parent == container && MatchTerminalNullGuard(block, variable, container, out _, out _))
+					continue;
+				return false;
+			}
+			return true;
+		}
+
+		static bool MatchTerminalNullGuard(Block block, ILVariable variable, BlockContainer container,
+			out StLoc store, out Block fallback)
+		{
+			store = null;
+			fallback = null;
+			if (block.Parent != container || block.Instructions.Count != 3
+				|| block.Instructions[0] is not StLoc assignment || assignment.Variable != variable
+				|| block.Instructions[1] is not IfInstruction test || !test.FalseInst.MatchNop()
+				|| test.Condition is not Comp { Kind: ComparisonKind.Equality, InputType: StackType.Obj, LiftingKind: ComparisonLiftingKind.None } comparison
+				|| !comparison.Left.MatchLdLoc(variable) || !comparison.Right.MatchLdNull()
+				|| test.TrueInst is not Branch missing || missing.TargetBlock.Parent != container
+				|| block.Instructions[2] is not Branch present || present.TargetBlock.Parent != container
+				|| present.TargetBlock.Instructions.Count != 1
+				|| present.TargetBlock.Instructions[0] is not Leave returned || !returned.IsLeavingFunction
+				|| returned.TargetContainer != container || !returned.Value.MatchLdLoc(variable))
+				return false;
+			store = assignment;
+			fallback = missing.TargetBlock;
+			return true;
+		}
+
+		static bool TryBuildTerminalFallback(Block block, ILVariable variable, BlockContainer container,
+			HashSet<Block> path, ref int budget, out ILInstruction value)
+		{
+			value = null;
+			if (block.Parent != container || path.Count >= 16 || !path.Add(block))
+				return false;
+			if (block.Instructions.Count == 1 && block.Instructions[0] is Leave returned
+				&& returned.IsLeavingFunction && returned.TargetContainer == container && SafeValue(returned.Value))
+			{
+				budget -= returned.Value.Descendants.Count();
+				if (budget < 0)
+					return false;
+				value = returned.Value.Clone();
+				return true;
+			}
+			if (!MatchTerminalNullGuard(block, variable, container, out var store, out var fallback) || !SafeValue(store.Value))
+				return false;
+			budget -= store.Value.Descendants.Count();
+			if (budget < 0 || !TryBuildTerminalFallback(fallback, variable, container, path, ref budget, out var next))
+				return false;
+			// Cloning a shared tail changes code size, but each selected path still
+			// evaluates every operand once, in its original order and only on null.
+			value = new NullCoalescingInstruction(variable.Type, NullCoalescingKind.Ref, store.Value.Clone(), next);
+			value.AddILRange(store);
+			return true;
+
+			bool SafeValue(ILInstruction expression) => expression.ResultType == StackType.Obj
+				&& !expression.Descendants.Any(i => i is LdLoc load && load.Variable == variable
+					|| i is StLoc assignment && assignment.Variable == variable
+					|| i.HasDirectFlag(InstructionFlags.ControlFlow));
+		}
+
 		public void Run(Block block, int pos, StatementTransformContext context)
 		{
 			if (TransformRefTypes(block, pos, context))
