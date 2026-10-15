@@ -62,6 +62,22 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 			return !Probe(value, out int snapshot) ? Arm(-1) : Arm(snapshot);
 		}
 
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		static int PositiveLocalChoice(int value)
+		{
+			bool enabled = Probe(value, out int snapshot);
+			Arm(enabled ? 2 : 3);
+			return !enabled ? Arm(-1) : Arm(snapshot);
+		}
+
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		static int SingleUseSnapshotChoice(int value)
+		{
+			bool enabled = Probe(value, out int snapshot);
+			int fallback = Arm(5);
+			return !enabled ? fallback : Arm(snapshot);
+		}
+
 		struct Odd
 		{
 			public int Value;
@@ -101,6 +117,10 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 			return value => !IsEven(value) ? Arm(-1) : Arm(1);
 		}
 		static bool IsEven(int value) { Console.Write("T;"); return (value & 1) == 0; }
+		static Expression<Func<bool, int>> LocalTree()
+		{
+			return enabled => !enabled ? Arm(-1) : Arm(1);
+		}
 
 		public static void Main()
 		{
@@ -108,6 +128,8 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 				for (fault = 0; fault <= 3; fault++) {
 					Run(() => PositiveIf(value));
 					Run(() => PositiveChoice(value));
+					Run(() => PositiveLocalChoice(value));
+					Run(() => SingleUseSnapshotChoice(value));
 					Run(() => Guard(value));
 					Run(() => EqualityChoice(new Odd { Value = value }, new Odd { Value = 0 }));
 					Run(() => UserNot(new Odd { Value = value }));
@@ -121,6 +143,10 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 			Console.WriteLine(tree.Body.NodeType + ";" + ((ConditionalExpression)tree.Body).Test.NodeType);
 			Run(() => tree.Compile()(0));
 			Run(() => tree.Compile()(1));
+			Expression<Func<bool, int>> localTree = LocalTree();
+			Console.WriteLine(localTree.Body.NodeType + ";" + ((ConditionalExpression)localTree.Body).Test.NodeType);
+			Run(() => localTree.Compile()(false));
+			Run(() => localTree.Compile()(true));
 		}
 		static void Run(Func<int> run)
 		{
