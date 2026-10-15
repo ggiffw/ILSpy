@@ -161,7 +161,7 @@ namespace ICSharpCode.Decompiler.IL.ControlFlow
 				}
 				if (IsBranchToReturnBlock(branch))
 				{
-					if (aggressivelyDuplicateReturnBlocks)
+					if (aggressivelyDuplicateReturnBlocks || CanDuplicateProtectedReturn(branch))
 					{
 						// Replace branches to 'return blocks' with the return instruction
 						context.Step("Replace branch to return with return", branch);
@@ -239,6 +239,63 @@ namespace ICSharpCode.Decompiler.IL.ControlFlow
 				}
 			}
 			return true;
+		}
+
+		static bool CanDuplicateProtectedReturn(Branch branch)
+		{
+			// IsBranchToReturnBlock has already proved a single local load and
+			// checked every intervening finally. Address-taken locals can still
+			// be changed indirectly by cleanup, so their reads must stay outside.
+			if (branch.TargetContainer.Parent is not ILFunction
+				|| !branch.TargetBlock.Instructions[0].MatchReturn(out var value)
+				|| !value.MatchLdLoc(out var variable) || variable.AddressCount != 0)
+				return false;
+			bool protectedRegion = false;
+			for (ILInstruction inst = branch; inst != branch.TargetContainer; inst = inst.Parent)
+			{
+				if (inst is BlockContainer container
+					&& (container.Kind != ContainerKind.Normal || ContainsCycle(container)))
+					return false;
+				if (inst.Parent is TryFinally tf)
+				{
+					if (inst.SlotInfo != TryFinally.TryBlockSlot)
+						return false;
+					protectedRegion = true;
+				}
+				if (inst.Parent is TryCatch)
+					protectedRegion = true;
+			}
+			return protectedRegion;
+		}
+
+		static bool ContainsCycle(BlockContainer container)
+		{
+			// This transform also runs before loop detection. A Normal container
+			// can still contain a native backedge; duplicating its exit early can
+			// prevent later foreach and loop recognition.
+			var edges = container.Blocks.ToDictionary(b => b, _ => new HashSet<Block>());
+			foreach (var branch in container.Descendants.OfType<Branch>())
+			{
+				if (branch.TargetBlock.Parent != container)
+					continue;
+				var source = branch.Ancestors.OfType<Block>().FirstOrDefault(b => b.Parent == container);
+				if (source != null)
+					edges[source].Add(branch.TargetBlock);
+			}
+			var incoming = container.Blocks.ToDictionary(b => b, _ => 0);
+			foreach (var targets in edges.Values)
+				foreach (var target in targets)
+					incoming[target]++;
+			var ready = new Queue<Block>(incoming.Where(p => p.Value == 0).Select(p => p.Key));
+			int visited = 0;
+			while (ready.Count != 0)
+			{
+				visited++;
+				foreach (var target in edges[ready.Dequeue()])
+					if (--incoming[target] == 0)
+						ready.Enqueue(target);
+			}
+			return visited != container.Blocks.Count;
 		}
 
 		internal static bool CombineBlockWithNextBlock(BlockContainer container, Block block, ILTransformContext context)
