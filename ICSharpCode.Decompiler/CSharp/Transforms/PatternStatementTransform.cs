@@ -490,7 +490,7 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			replacement.AddAnnotation(new ILVariableResolveResult(item, item.Type));
 			element.ReplaceWith(replacement);
 			var result = new ForeachStatement {
-				VariableType = context.TypeSystemAstBuilder.ConvertType(item.Type),
+				VariableType = context.Settings.AnonymousTypes && item.Type.ContainsAnonymousType() ? new SimpleType("var") : context.TypeSystemAstBuilder.ConvertType(item.Type),
 				VariableDesignation = new SingleVariableDesignation { Identifier = name },
 				InExpression = match.Get<IdentifierExpression>("arrayVariable").Single().Detach(),
 				EmbeddedStatement = body.Detach()

@@ -36,10 +36,12 @@ public class InlineArrayForeachTests
     static float ByRef(ref float[] array, Dictionary<float,float> map) { float sum=0;for(int i=0;i<array.Length;i++){float v=map[array[i]];sum+=v;sum-=v;}return sum; }
     static float Nonzero(float[] array, Dictionary<float,float> map) { float sum=0;for(int i=1;i<array.Length;i++){float v=map[array[i]];sum+=v;sum-=v;}return sum; }
     static float Collision(float[] array, Dictionary<float,float> map, int item, int item2) { float sum=item+item2;for(int i=0;i<array.Length;i++){float v=map[array[i]];sum+=v;sum-=v;}return sum; }
+    static float Anonymous() { var array=new[]{new{Code=1},new{Code=2}};var map=array.ToDictionary(x=>x,_=>3f);float sum=0;for(int i=0;i<array.Length;i++){float v=map[array[i]];sum+=v;sum-=v;}return sum; }
     [TestCase(nameof(Lookup), true)] [TestCase(nameof(Changed), false)]
     [TestCase(nameof(IndexUsed), false)] [TestCase(nameof(Receiver), false)]
     [TestCase(nameof(Duplicate), false)] [TestCase(nameof(Preamble), false)]
     [TestCase(nameof(ByRef), false)] [TestCase(nameof(Nonzero), false)] [TestCase(nameof(Collision), true)]
+    [TestCase(nameof(Anonymous), true)]
     public void ForeachFromAnInlineDictionaryKeyKeepsEvaluationAndArraySnapshots(string method, bool expected)
     {
         var dec=new CSharpDecompiler(typeof(InlineArrayForeachTests).Assembly.Location,new DecompilerSettings{ThrowOnAssemblyResolveErrors=false});
@@ -47,5 +49,6 @@ public class InlineArrayForeachTests
         var text=dec.DecompileAsString(System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(info.MetadataToken));
         Assert.That(text.Contains("foreach ("),Is.EqualTo(expected),text);
         if (method==nameof(Collision)) Assert.That(text.Contains("float item3 in"), Is.True, text);
+        if (method==nameof(Anonymous)) Assert.That(text.Contains("foreach (var "), Is.True, text);
     }
 }
