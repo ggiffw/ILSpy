@@ -65,11 +65,16 @@ namespace ICSharpCode.Decompiler.Tests
 			Guard(fallback, second, terminal);
 			terminal.Instructions.Add(new Leave(container, new LdLoc(last)));
 			success.Instructions.Add(new Leave(container, new LdLoc(value)));
-			if (invalid == 1) terminal.Instructions[0] = new Leave(container, new LdLoc(value));
-			if (invalid == 2) terminal.Instructions.Insert(0, new StLoc(last, new LdLoca(value)));
-			if (invalid == 3) terminal.Instructions[0] = new Branch(entry);
-			if (invalid == 4) success.Instructions[0] = new Leave(container, new LdLoc(first));
-			if (invalid == 5) ((Comp)((IfInstruction)entry.Instructions[1]).Condition).Kind = ComparisonKind.Inequality;
+			if (invalid == 1)
+				terminal.Instructions[0] = new Leave(container, new LdLoc(value));
+			if (invalid == 2)
+				terminal.Instructions.Insert(0, new StLoc(last, new LdLoca(value)));
+			if (invalid == 3)
+				terminal.Instructions[0] = new Branch(entry);
+			if (invalid == 4)
+				success.Instructions[0] = new Leave(container, new LdLoc(first));
+			if (invalid == 5)
+				((Comp)((IfInstruction)entry.Instructions[1]).Condition).Kind = ComparisonKind.Inequality;
 			// Connect the synthetic root in both the signed suite and standalone hosts.
 			typeof(ILInstruction).GetMethod("AddRef", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(function, null);
 			var context = decompiler.CreateILTransformContext(function);

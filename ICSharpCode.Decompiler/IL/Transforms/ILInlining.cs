@@ -174,11 +174,42 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 				return false;
 			if (!VariableCanBeUsedForInlining(stloc.Variable))
 				return false;
+			if (InlineEagerBoolean(stloc, block.Instructions.ElementAtOrDefault(pos + 1), context))
+				return true;
 			// TODO: inlining of small integer types might be semantically incorrect,
 			// but we can't avoid it this easily without breaking lots of tests.
 			//if (v.Type.IsSmallIntegerType())
 			//	return false; // stloc might perform implicit truncation
 			return InlineOne(stloc, options, context);
+		}
+
+		static bool InlineEagerBoolean(StLoc store, ILInstruction next, ILTransformContext context)
+		{
+			var variable = store.Variable;
+			if (context.Function.Kind == ILFunctionKind.ExpressionTree
+				|| variable.Kind != VariableKind.Local || variable.AddressCount != 0
+				|| !variable.Type.IsKnownType(KnownTypeCode.Boolean)
+				|| !store.Value.InferType(context.TypeSystem).IsKnownType(KnownTypeCode.Boolean)
+				|| next is not IfInstruction { ResultType: StackType.Void } guard
+				|| !guard.Condition.MatchLogicAnd(out var left, out var right)
+				|| left is not Comp { InputType: StackType.I4, Left: LdLoc parameter, Right: LdcI4 }
+				|| parameter.Variable.Kind != VariableKind.Parameter || parameter.Variable.StoreCount != 1
+				|| parameter.Variable.AddressCount != 0 || !parameter.Variable.Type.GetStackType().IsIntegerType()
+				|| !right.MatchLogicAnd(out var test, out var tail)
+				|| test is not Comp { Kind: ComparisonKind.Equality, Left: LdLoc load, Right: LdcI4 { Value: 0 } }
+				|| load.Variable != variable)
+				return false;
+
+			// The snapshot was evaluated before either condition. A comparison of
+			// an unaliased, unwritten integer parameter cannot observe the getter,
+			// throw, or alter its evaluation count. Keep the eager test first.
+			context.Step("Inline eager Boolean before immutable parameter comparison", store);
+			var eagerTest = test.Clone();
+			((Comp)eagerTest).Left = store.Value.Clone();
+			guard.Condition = IfInstruction.LogicAnd(eagerTest,
+				IfInstruction.LogicAnd(left, tail, context.TypeSystem), context.TypeSystem);
+			((Block)store.Parent).Instructions.RemoveAt(store.ChildIndex);
+			return true;
 		}
 
 		public static bool VariableCanBeUsedForInlining(ILVariable v)
@@ -688,7 +719,8 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			if (parent is Box boxing && boxing.Argument == loadInst
 				&& inlinedExpression is IfInstruction conditional
 				&& (v.Type.IsKnownType(KnownTypeCode.Single) || v.Type.IsKnownType(KnownTypeCode.Double))
-				&& boxing.Type.Equals(v.Type) && conditional.CSharpType?.Equals(v.Type) == true) {
+				&& boxing.Type.Equals(v.Type) && conditional.CSharpType?.Equals(v.Type) == true)
+			{
 				// The scalar store adds no conversion before boxing. Keep the
 				// conditional lazy; FindLoadInNext already proved evaluation order.
 				return true;
@@ -732,7 +764,8 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 						&& parent is CallInstruction consumer && consumer.Arguments.LastOrDefault() == loadInst
 						&& (consumer.Method.IsStatic || consumer.Method.DeclaringType.IsReferenceType == true && consumer.Arguments.FirstOrDefault() is LdLoc { Variable.Type.IsReferenceType: true })
 						&& consumer.Arguments.Count == consumer.Method.Parameters.Count + (consumer.Method.IsStatic ? 0 : 1)
-						&& consumer.Method.Parameters.LastOrDefault()?.Type.Equals(v.Type) == true) {
+						&& consumer.Method.Parameters.LastOrDefault()?.Type.Equals(v.Type) == true)
+					{
 						// FindLoadInNext proved that preceding arguments can be crossed.
 						// The exact scalar return/parameter types retain the call boundary;
 						// there is no arithmetic or narrowing store to remove.

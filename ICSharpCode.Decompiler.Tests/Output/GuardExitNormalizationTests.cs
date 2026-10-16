@@ -76,18 +76,24 @@ namespace ICSharpCode.Decompiler.Tests.Output
 			public int Count;
 			public void Run(AstNode root, TransformContext context)
 			{
-				foreach (string kind in new[] { "positive", "following", "else", "unknown", "lifted", "label", "function", "unbound-local" }) {
+				foreach (string kind in new[] { "positive", "following", "else", "unknown", "lifted", "label", "function", "unbound-local" })
+				{
 					var boolean = context.TypeSystem.FindType(KnownTypeCode.Boolean);
 					var condition = new UnaryOperatorExpression(UnaryOperatorType.Not, new IdentifierExpression("enabled"));
 					if (kind != "unknown")
 						condition.AddAnnotation(new OperatorResolveResult(boolean, ExpressionType.Not, null, kind == "lifted", new[] { new ResolveResult(boolean) }));
 					var guard = new IfElseStatement(condition, new BlockStatement { new ContinueStatement() });
-					if (kind == "else") guard.FalseStatement = new BlockStatement { new EmptyStatement() };
+					if (kind == "else")
+						guard.FalseStatement = new BlockStatement { new EmptyStatement() };
 					var block = new BlockStatement { guard, new ExpressionStatement(new InvocationExpression(new IdentifierExpression("Observe"))), new ContinueStatement() };
-					if (kind == "following") block.Add(new ExpressionStatement(new InvocationExpression(new IdentifierExpression("After"))));
-					if (kind == "label") block.Statements.InsertBefore(block.Statements.Last(), new LabelStatement { Label = "target" });
-					if (kind == "function") block.Statements.InsertBefore(block.Statements.Last(), new LocalFunctionDeclarationStatement { Declaration = new MethodDeclaration { Name = "Local", ReturnType = new PrimitiveType("void"), Body = new BlockStatement() } });
-					if (kind == "unbound-local") block.Statements.InsertBefore(block.Statements.Last(), new VariableDeclarationStatement(new PrimitiveType("int"), "value", new PrimitiveExpression(1)));
+					if (kind == "following")
+						block.Add(new ExpressionStatement(new InvocationExpression(new IdentifierExpression("After"))));
+					if (kind == "label")
+						block.Statements.InsertBefore(block.Statements.Last(), new LabelStatement { Label = "target" });
+					if (kind == "function")
+						block.Statements.InsertBefore(block.Statements.Last(), new LocalFunctionDeclarationStatement { Declaration = new MethodDeclaration { Name = "Local", ReturnType = new PrimitiveType("void"), Body = new BlockStatement() } });
+					if (kind == "unbound-local")
+						block.Statements.InsertBefore(block.Statements.Last(), new VariableDeclarationStatement(new PrimitiveType("int"), "value", new PrimitiveExpression(1)));
 					var loop = new WhileStatement(new PrimitiveExpression(true), block);
 					normalizer.Run(loop, context);
 					int expected = kind == "positive" ? 1 : 2;

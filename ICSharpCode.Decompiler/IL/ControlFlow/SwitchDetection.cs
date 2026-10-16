@@ -466,6 +466,11 @@ namespace ICSharpCode.Decompiler.IL.ControlFlow
 			if (analysis.ContainsILSwitch || MatchRoslynSwitchOnString())
 				return true;
 
+			// A small dispatch with a constant fallback and a short arm returning
+			// that same constant reads naturally as an early-return guard chain.
+			if (IsEarlyReturnChain(defaultSection))
+				return false;
+
 			// heuristic to determine if a block would be better represented as an if statement rather than switch
 			int ifCount = analysis.InnerBlocks.Count + 1;
 			int intervalCount = analysis.Sections.Where(s => !s.Key.SetEquals(defaultSectionKey)).Sum(s => s.Key.Intervals.Length);
@@ -507,6 +512,31 @@ namespace ICSharpCode.Decompiler.IL.ControlFlow
 		{
 			var insns = analysis.RootBlock.Instructions;
 			return insns.Count >= 3 && SwitchOnStringTransform.MatchComputeStringOrReadOnlySpanHashCall(insns[insns.Count - 3], analysis.SwitchVariable, out _);
+		}
+
+		private bool IsEarlyReturnChain(KeyValuePair<LongSet, ILInstruction> defaultSection)
+		{
+			if (analysis.Sections.Count != 3
+				|| !defaultSection.Value.MatchBranch(out var fallback)
+				|| fallback.Parent != currentContainer || fallback.IncomingEdgeCount != 1
+				|| fallback.Instructions.Count != 1
+				|| !ReduceNestingTransform.MatchIntegerReturn(fallback.Instructions[0], out var fallbackReturn))
+				return false;
+			bool hasShortReturn = false;
+			foreach (var section in analysis.Sections)
+			{
+				if (section.Key.SetEquals(defaultSection.Key))
+					continue;
+				if (section.Key.Count() != 1 || !section.Value.MatchBranch(out var arm)
+					|| arm.Parent != currentContainer || arm.IncomingEdgeCount != 1)
+					return false;
+				if (arm.Instructions.Count == 2 && !arm.Instructions[0].HasFlag(InstructionFlags.ControlFlow)
+					&& ReduceNestingTransform.MatchIntegerReturn(arm.Instructions[1], out var armReturn)
+					&& armReturn.TargetContainer == fallbackReturn.TargetContainer
+					&& armReturn.Value.Match(fallbackReturn.Value).Success)
+					hasShortReturn = true;
+			}
+			return hasShortReturn;
 		}
 
 		/// <summary>

@@ -149,9 +149,12 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 		{
 			Trace.Clear();
 			string result;
-			try {
+			try
+			{
 				result = action();
-			} catch (Exception e) {
+			}
+			catch (Exception e)
+			{
 				result = e.GetType().Name;
 			}
 			Console.WriteLine(result + ":" + string.Join(",", Trace));
@@ -160,9 +163,12 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 		public static void Main()
 		{
 			int cases = 0;
-			foreach (bool choose in new[] { false, true }) {
-				for (int fault = 0; fault < 4; fault++) {
-					foreach (uint bits in Edges) {
+			foreach (bool choose in new[] { false, true })
+			{
+				for (int fault = 0; fault < 4; fault++)
+				{
+					foreach (uint bits in Edges)
+					{
 						float value = BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
 						Run(() => Single(choose, value, fault));
 						Run(() => ArraySingle(choose, value, fault));
@@ -172,7 +178,8 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 						Run(() => NullableSingle(choose, value, fault));
 						cases += 6;
 					}
-					foreach (ulong bits in WideEdges) {
+					foreach (ulong bits in WideEdges)
+					{
 						double value = BitConverter.ToDouble(BitConverter.GetBytes(bits), 0);
 						Run(() => Double(choose, value, fault));
 						cases++;

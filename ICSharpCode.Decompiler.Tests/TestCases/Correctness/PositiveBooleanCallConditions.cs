@@ -46,10 +46,13 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 		[MethodImpl(MethodImplOptions.NoInlining)]
 		static int PositiveIf(int value)
 		{
-			if (!Probe(value, out int snapshot)) {
+			if (!Probe(value, out int snapshot))
+			{
 				Console.Write("F;");
 				Arm(-1);
-			} else {
+			}
+			else
+			{
 				Console.Write("T;");
 				Arm(snapshot);
 			}
@@ -124,8 +127,10 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 
 		public static void Main()
 		{
-			for (int value = -2; value <= 2; value++) {
-				for (fault = 0; fault <= 3; fault++) {
+			for (int value = -2; value <= 2; value++)
+			{
+				for (fault = 0; fault <= 3; fault++)
+				{
 					Run(() => PositiveIf(value));
 					Run(() => PositiveChoice(value));
 					Run(() => PositiveLocalChoice(value));
@@ -151,7 +156,8 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 		static void Run(Func<int> run)
 		{
 			calls = 0;
-			try { Console.WriteLine("R" + run()); }
+			try
+			{ Console.WriteLine("R" + run()); }
 			catch (Exception e) { Console.WriteLine(e.GetType().Name); }
 		}
 	}

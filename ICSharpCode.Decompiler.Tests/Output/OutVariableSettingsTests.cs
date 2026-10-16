@@ -22,19 +22,19 @@ using NUnit.Framework;
 
 namespace ICSharpCode.Decompiler.Tests.Output
 {
-    [TestFixture]
-    public class OutVariableSettingsTests
-    {
-        [Test]
-        public void ExplicitStylePreservesDefaultsCloneIsolationAndLanguageGate()
-        {
-            var defaults = new DecompilerSettings();
-            var explicitSettings = defaults.Clone();
-            explicitSettings.ImplicitlyTypedOutVariables = false;
-            Assert.That(defaults.ImplicitlyTypedOutVariables, Is.True);
-            Assert.That(explicitSettings.ImplicitlyTypedOutVariables, Is.False);
-            Assert.That(explicitSettings.OutVariables, Is.True);
-            Assert.That(new DecompilerSettings(LanguageVersion.CSharp6).OutVariables, Is.False);
-        }
-    }
+	[TestFixture]
+	public class OutVariableSettingsTests
+	{
+		[Test]
+		public void ExplicitStylePreservesDefaultsCloneIsolationAndLanguageGate()
+		{
+			var defaults = new DecompilerSettings();
+			var explicitSettings = defaults.Clone();
+			explicitSettings.ImplicitlyTypedOutVariables = false;
+			Assert.That(defaults.ImplicitlyTypedOutVariables, Is.True);
+			Assert.That(explicitSettings.ImplicitlyTypedOutVariables, Is.False);
+			Assert.That(explicitSettings.OutVariables, Is.True);
+			Assert.That(new DecompilerSettings(LanguageVersion.CSharp6).OutVariables, Is.False);
+		}
+	}
 }

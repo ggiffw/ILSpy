@@ -107,7 +107,8 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			if (simplifiedIfElse != null)
 				return simplifiedIfElse;
 			if (ifElseStatement.TrueStatement is not null && ifElseStatement.FalseStatement is not null
-				&& PositiveBooleanCondition(ifElseStatement.Condition) is { } condition) {
+				&& PositiveBooleanCondition(ifElseStatement.Condition) is { } condition)
+			{
 				context.Step("Use positive Boolean call condition", ifElseStatement);
 				var trueStatement = ifElseStatement.TrueStatement.Detach();
 				ifElseStatement.TrueStatement = ifElseStatement.FalseStatement.Detach();
@@ -120,7 +121,8 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 
 		public override AstNode VisitConditionalExpression(ConditionalExpression expression)
 		{
-			if (PositiveBooleanCondition(expression.Condition, allowLocal: true) is { } condition) {
+			if (PositiveBooleanCondition(expression.Condition, allowLocal: true) is { } condition)
+			{
 				context.Step("Use positive Boolean condition", expression);
 				var trueExpression = expression.TrueExpression.Detach();
 				expression.TrueExpression = expression.FalseExpression.Detach();

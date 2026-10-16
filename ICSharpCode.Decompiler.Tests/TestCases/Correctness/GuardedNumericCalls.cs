@@ -55,18 +55,27 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 		static int Receiver() { Trace.Add("receiver"); if (Fault == 2) throw new ArgumentException(); return 7; }
 		static void GuardLoop(int[] states)
 		{
-			foreach (int state in states) {
-				if (state <= 2) {
-					if (state == 0) {
-						if (!Check()) continue;
+			foreach (int state in states)
+			{
+				if (state <= 2)
+				{
+					if (state == 0)
+					{
+						if (!Check())
+							continue;
 						int receiver = Receiver();
-						if (receiver > 0) Trace.Add("body");
+						if (receiver > 0)
+							Trace.Add("body");
 						continue;
 					}
-					if (state != 2) continue;
+					if (state != 2)
+						continue;
 					Trace.Add("two");
-				} else {
-					if (state != 3) { Trace.Add("other"); continue; }
+				}
+				else
+				{
+					if (state != 3)
+					{ Trace.Add("other"); continue; }
 					Trace.Add("three");
 				}
 				Trace.Add("shared");
@@ -75,51 +84,76 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 
 		static void GuardWithFollowingWork(int[] states)
 		{
-			foreach (int state in states) {
-				if (!Check()) continue;
+			foreach (int state in states)
+			{
+				if (!Check())
+					continue;
 				Trace.Add("body");
-				if (state != 0) Trace.Add("tail");
+				if (state != 0)
+					Trace.Add("tail");
 			}
 		}
 
 		static void FinallyLoop(int[] states)
 		{
-			foreach (int state in states) {
-				try {
-					if (state == 0) {
-						if (!Check()) continue;
+			foreach (int state in states)
+			{
+				try
+				{
+					if (state == 0)
+					{
+						if (!Check())
+							continue;
 						Trace.Add("body");
 						continue;
 					}
 					Trace.Add("shared");
-				} finally { Trace.Add("finally"); }
+				}
+				finally { Trace.Add("finally"); }
 			}
 		}
 
 		public static void Main()
 		{
 			int count = 0;
-			for (int fault = 0; fault < 4; fault++) {
+			for (int fault = 0; fault < 4; fault++)
+			{
 				Fault = fault;
-				foreach (uint bits in Edges) {
+				foreach (uint bits in Edges)
+				{
 					float value = BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
-					foreach (Action<float> action in new Action<float>[] { LastSingle, ObservableFirst, ThrowingFirst, ByReference, TwoUses, PreserveRead, Widen }) {
-						Trace.Clear(); Current = value; Array = null;
-						try { action(value); } catch (Exception e) { Trace.Add(e.GetType().Name); }
-						Console.WriteLine(string.Join(",", Trace)); count++;
+					foreach (Action<float> action in new Action<float>[] { LastSingle, ObservableFirst, ThrowingFirst, ByReference, TwoUses, PreserveRead, Widen })
+					{
+						Trace.Clear();
+						Current = value;
+						Array = null;
+						try
+						{ action(value); }
+						catch (Exception e) { Trace.Add(e.GetType().Name); }
+						Console.WriteLine(string.Join(",", Trace));
+						count++;
 					}
 				}
-				foreach (ulong bits in WideEdges) {
+				foreach (ulong bits in WideEdges)
+				{
 					Trace.Clear();
-					try { LastDouble(BitConverter.ToDouble(BitConverter.GetBytes(bits), 0)); } catch (Exception e) { Trace.Add(e.GetType().Name); }
-					Console.WriteLine(string.Join(",", Trace)); count++;
+					try
+					{ LastDouble(BitConverter.ToDouble(BitConverter.GetBytes(bits), 0)); }
+					catch (Exception e) { Trace.Add(e.GetType().Name); }
+					Console.WriteLine(string.Join(",", Trace));
+					count++;
 				}
-				foreach (bool enabled in new[] { false, true }) {
+				foreach (bool enabled in new[] { false, true })
+				{
 					Enabled = enabled;
-					foreach (Action<int[]> action in new Action<int[]>[] { GuardLoop, GuardWithFollowingWork, FinallyLoop }) {
+					foreach (Action<int[]> action in new Action<int[]>[] { GuardLoop, GuardWithFollowingWork, FinallyLoop })
+					{
 						Trace.Clear();
-						try { action(new[] { int.MinValue, -1, 0, 1, 2, 3, 4, int.MaxValue }); } catch (Exception e) { Trace.Add(e.GetType().Name); }
-						Console.WriteLine(string.Join(",", Trace)); count++;
+						try
+						{ action(new[] { int.MinValue, -1, 0, 1, 2, 3, 4, int.MaxValue }); }
+						catch (Exception e) { Trace.Add(e.GetType().Name); }
+						Console.WriteLine(string.Join(",", Trace));
+						count++;
 					}
 				}
 			}

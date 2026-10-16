@@ -120,7 +120,8 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 		static float ReadSingle(int tag, int fault)
 		{
 			trace = trace * 10 + tag;
-			if (tag == fault) throw new InvalidOperationException();
+			if (tag == fault)
+				throw new InvalidOperationException();
 			return tag == 1 ? 1.5f : -2.25f;
 		}
 		static float NegateCalls(int fault) { return -(ReadSingle(1, fault) + ReadSingle(2, fault)); }
@@ -156,10 +157,12 @@ namespace ICSharpCode.Decompiler.Tests.TestCases.Correctness
 			for (int fault = 0; fault <= 2; fault++)
 			{
 				trace = 0;
-				try { Console.WriteLine("calls:{0}:{1}", SingleBits(NegateCalls(fault)), trace); }
+				try
+				{ Console.WriteLine("calls:{0}:{1}", SingleBits(NegateCalls(fault)), trace); }
 				catch (InvalidOperationException) { Console.WriteLine("calls:throw:{0}", trace); }
 				trace = 0;
-				try { Console.WriteLine("subtract:{0}:{1}", SingleBits(SubtractCalls(fault)), trace); }
+				try
+				{ Console.WriteLine("subtract:{0}:{1}", SingleBits(SubtractCalls(fault)), trace); }
 				catch (InvalidOperationException) { Console.WriteLine("subtract:throw:{0}", trace); }
 			}
 			Expression<Func<float, float>> negateTree = value => -value;

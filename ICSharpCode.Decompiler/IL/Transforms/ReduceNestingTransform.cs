@@ -112,6 +112,7 @@ namespace ICSharpCode.Decompiler.IL
 						}
 						break;
 					case IfInstruction ifInst:
+						MergeAdjacentIntegerReturns(block, ifInst);
 						ImproveILOrdering(block, ifInst, continueTarget);
 
 						// reduce nesting in if/else blocks
@@ -183,6 +184,22 @@ namespace ICSharpCode.Decompiler.IL
 
 			Debug.Assert(ifInst != block.Instructions.Last());
 
+			// Keep a short terminal alternative in a guard, even when the native
+			// layout placed it after a larger arm beginning with the same return.
+			int index = block.Instructions.IndexOf(ifInst);
+			if (index + 3 == block.Instructions.Count
+				&& !block.Instructions[index + 1].HasFlag(InstructionFlags.ControlFlow)
+				&& MatchIntegerReturn(block.Instructions.Last(), out var terminal)
+				&& ifInst.TrueInst is Block { FinalInstruction: Nop } body && body.Instructions.Count > 3
+				&& body.Instructions[0] is IfInstruction guard && guard.FalseInst.MatchNop()
+				&& MatchIntegerReturn(guard.TrueInst, out var guardedReturn)
+				&& terminal.TargetContainer == guardedReturn.TargetContainer
+				&& terminal.Value.Match(guardedReturn.Value).Success)
+			{
+				ConditionDetection.InvertIf(block, ifInst, context);
+				return;
+			}
+
 			var trueRangeStart = ConditionDetection.GetStartILOffset(ifInst.TrueInst, out bool trueRangeIsEmpty);
 			var falseRangeStart = ConditionDetection.GetStartILOffset(block.Instructions[block.Instructions.IndexOf(ifInst) + 1], out bool falseRangeIsEmpty);
 			if (trueRangeIsEmpty || falseRangeIsEmpty || falseRangeStart >= trueRangeStart)
@@ -201,6 +218,31 @@ namespace ICSharpCode.Decompiler.IL
 			}
 
 			ConditionDetection.InvertIf(block, ifInst, context);
+		}
+
+		internal static bool MatchIntegerReturn(ILInstruction inst, out Leave leave)
+		{
+			if (inst is Block { FinalInstruction: Nop } block && block.Instructions.Count == 1)
+				inst = block.Instructions[0];
+			leave = inst as Leave;
+			return leave != null && leave.IsLeavingFunction && (leave.Value is LdcI4 || leave.Value is LdcI8);
+		}
+
+		private void MergeAdjacentIntegerReturns(Block block, IfInstruction first)
+		{
+			if (!first.FalseInst.MatchNop() || !MatchIntegerReturn(first.TrueInst, out var firstReturn))
+				return;
+			int next = block.Instructions.IndexOf(first) + 1;
+			while (next < block.Instructions.Count && block.Instructions[next] is IfInstruction second
+				&& second.FalseInst.MatchNop() && MatchIntegerReturn(second.TrueInst, out var secondReturn)
+				&& firstReturn.TargetContainer == secondReturn.TargetContainer
+				&& firstReturn.Value.Match(secondReturn.Value).Success)
+			{
+				context.Step("Merge adjacent identical integer returns", first);
+				first.Condition = IfInstruction.LogicOr(first.Condition, second.Condition, context.TypeSystem);
+				firstReturn.AddILRange(secondReturn);
+				block.Instructions.RemoveAt(next);
+			}
 		}
 
 		/// <summary>
