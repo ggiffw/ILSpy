@@ -464,10 +464,20 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			};
 			var match = pattern.Match(loop);
 			if (!match.Success || loop.EmbeddedStatement is not BlockStatement body
-				|| body.Statements.FirstOrDefault() is not ExpressionStatement {
-					Expression: AssignmentExpression { Operator: AssignmentOperatorType.Assign, Left: IdentifierExpression,
-						Right: IndexerExpression lookup }
-				} || lookup.Target is not IdentifierExpression receiver || receiver.GetILVariable() == null
+				|| body.Statements.FirstOrDefault() is not ExpressionStatement first)
+				return null;
+			IndexerExpression? lookup = null;
+			if (first.Expression is AssignmentExpression { Operator: AssignmentOperatorType.Assign, Left: IdentifierExpression,
+				Right: IndexerExpression assignedLookup }) {
+				lookup = assignedLookup;
+			} else if (first.Expression is InvocationExpression { Target: MemberReferenceExpression { Target: IdentifierExpression consumer } } call
+				&& consumer.GetILVariable() != null && call.Arguments.Count == 1
+				&& call.Arguments.Single() is MemberReferenceExpression { Target: IndexerExpression argumentLookup }) {
+				// Both receivers are plain local reads. The indexer, member access
+				// and invocation still run after the single array element read.
+				lookup = argumentLookup;
+			}
+			if (lookup == null || lookup.Target is not IdentifierExpression receiver || receiver.GetILVariable() == null
 				|| lookup.Arguments.Count != 1 || lookup.Arguments.Single() is not IndexerExpression element
 				|| element.Target is not IdentifierExpression arrayRead || element.Arguments.Count != 1
 				|| element.Arguments.Single() is not IdentifierExpression indexRead)
