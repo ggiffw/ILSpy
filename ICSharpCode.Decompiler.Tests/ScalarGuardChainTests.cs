@@ -148,9 +148,10 @@ namespace ICSharpCode.Decompiler.Tests
 		[TestCase(9)]
 		[TestCase(10)]
 		[TestCase(11)]
+		[TestCase(12)]
 		public void InlineEagerBooleanBeforeImmutableComparison(int mutation)
 		{
-			var (dec, function, body, entry, value) = Create(mutation == 11 ? ILFunctionKind.ExpressionTree : ILFunctionKind.TopLevelFunction);
+			var (dec, function, body, entry, value) = Create(mutation is 11 or 12 ? ILFunctionKind.ExpressionTree : ILFunctionKind.TopLevelFunction);
 			var boolean = dec.TypeSystem.FindType(KnownTypeCode.Boolean);
 			var snapshot = function.RegisterVariable(VariableKind.Local, boolean, "snapshot");
 			var source = dec.TypeSystem.FindType(KnownTypeCode.Object).GetMethods().First(m => m.Name == "Equals" && m.IsStatic && m.Parameters.Count == 2);
@@ -182,8 +183,15 @@ namespace ICSharpCode.Decompiler.Tests
 				entry.Instructions.Add(new StLoc(function.RegisterVariable(VariableKind.Local, new ByReferenceType(boolean), "alias"), new LdLoca(snapshot)));
 			if (mutation == 10)
 				test.Kind = ComparisonKind.Inequality;
+			var transformContext = dec.CreateILTransformContext(function);
+			if (mutation == 12)
+			{
+				var outer = Create();
+				outer.Entry.Instructions.Add(new Leave(outer.Body, function));
+				transformContext = dec.CreateILTransformContext(outer.Function);
+			}
 			var before = function.ToString();
-			bool changed = IL.Transforms.ILInlining.InlineOneIfPossible(entry, mutation == 7 ? 1 : 0, IL.Transforms.InliningOptions.None, dec.CreateILTransformContext(function));
+			bool changed = IL.Transforms.ILInlining.InlineOneIfPossible(entry, mutation == 7 ? 1 : 0, IL.Transforms.InliningOptions.None, transformContext);
 			Assert.That(changed, Is.EqualTo(mutation == 0));
 			if (mutation == 0)
 			{ Assert.That(snapshot.LoadCount, Is.Zero); Assert.That(snapshot.StoreCount, Is.Zero); Assert.That(guard.Condition.Descendants.OfType<Call>().Count(), Is.EqualTo(1)); }

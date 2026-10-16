@@ -187,6 +187,7 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 		{
 			var variable = store.Variable;
 			if (context.Function.Kind == ILFunctionKind.ExpressionTree
+				|| store.Ancestors.OfType<ILFunction>().FirstOrDefault()?.Kind == ILFunctionKind.ExpressionTree
 				|| variable.Kind != VariableKind.Local || variable.AddressCount != 0
 				|| !variable.Type.IsKnownType(KnownTypeCode.Boolean)
 				|| !store.Value.InferType(context.TypeSystem).IsKnownType(KnownTypeCode.Boolean)
