@@ -420,7 +420,7 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 				return null;
 			Match m = forOnArrayPattern.Match(forStatement);
 			if (!m.Success)
-				return null;
+				return TransformForeachOnInlineArrayKey(forStatement);
 			var itemVariable = m.Get<IdentifierExpression>("itemVariable").Single().GetILVariable();
 			var indexVariable = m.Get<IdentifierExpression>("indexVariable").Single().GetILVariable();
 			var arrayVariable = m.Get<IdentifierExpression>("arrayVariable").Single().GetILVariable();
@@ -450,6 +450,56 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			forStatement.ReplaceWith(foreachStmt);
 			context.EndStep(foreachStmt);
 			return foreachStmt;
+		}
+
+		Statement? TransformForeachOnInlineArrayKey(ForStatement loop)
+		{
+			// Inlining may consume the element temporary in the first dictionary
+			// lookup. Only a local receiver precedes the element access here; its
+			// evaluation cannot call, throw or change the array. Do not lift an
+			// arbitrary nested expression to the start of the iteration.
+			var pattern = (ForStatement)forOnArrayPattern.Clone();
+			pattern.EmbeddedStatement = new BlockStatement {
+				Statements = { new Repeat(new AnyNode("body")) }
+			};
+			var match = pattern.Match(loop);
+			if (!match.Success || loop.EmbeddedStatement is not BlockStatement body
+				|| body.Statements.FirstOrDefault() is not ExpressionStatement {
+					Expression: AssignmentExpression { Operator: AssignmentOperatorType.Assign, Left: IdentifierExpression,
+						Right: IndexerExpression lookup }
+				} || lookup.Target is not IdentifierExpression receiver || receiver.GetILVariable() == null
+				|| lookup.Arguments.Count != 1 || lookup.Arguments.Single() is not IndexerExpression element
+				|| element.Target is not IdentifierExpression arrayRead || element.Arguments.Count != 1
+				|| element.Arguments.Single() is not IdentifierExpression indexRead)
+				return null;
+			var index = match.Get<IdentifierExpression>("indexVariable").Single().GetILVariable();
+			var array = match.Get<IdentifierExpression>("arrayVariable").Single().GetILVariable();
+			if (index == null || array == null || indexRead.GetILVariable() != index || arrayRead.GetILVariable() != array
+				|| index.StoreCount != 2 || index.LoadCount != 3 || index.AddressCount != 0
+				|| array.StoreCount != 1 || array.AddressCount != 0 || array.Type is not ArrayType { Dimensions: 1 } arrayType
+				|| index.Function == null)
+				return null;
+			var names = loop.Ancestors.Last().Descendants.OfType<IdentifierExpression>().Select(e => e.Identifier)
+				.Concat(index.Function.Variables.Select(v => v.Name)).ToHashSet();
+			var name = "item";
+			for (int suffix = 2; names.Contains(name); suffix++)
+				name = "item" + suffix;
+			var item = index.Function.RegisterVariable(IL.VariableKind.ForeachLocal, arrayType.ElementType, name);
+			context.Step("Introduce foreach over inline array key", loop);
+			var replacement = new IdentifierExpression(name);
+			replacement.AddAnnotation(new ILVariableResolveResult(item, item.Type));
+			element.ReplaceWith(replacement);
+			var result = new ForeachStatement {
+				VariableType = context.TypeSystemAstBuilder.ConvertType(item.Type),
+				VariableDesignation = new SingleVariableDesignation { Identifier = name },
+				InExpression = match.Get<IdentifierExpression>("arrayVariable").Single().Detach(),
+				EmbeddedStatement = body.Detach()
+			};
+			result.CopyAnnotationsFrom(loop);
+			result.VariableDesignation.AddAnnotation(new ILVariableResolveResult(item, item.Type));
+			loop.ReplaceWith(result);
+			context.EndStep(result);
+			return result;
 		}
 
 		static readonly ForStatement forOnInlineArrayPattern = new ForStatement {
