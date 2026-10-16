@@ -759,6 +759,8 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return true; // inline size-expressions into localloc.span
 				case OpCode.Call:
 				case OpCode.CallVirt:
+					if (CanInlineExactValueArgument(parent as CallInstruction, loadInst, inlinedExpression, v))
+						return true;
 					if ((v.Type.IsKnownType(KnownTypeCode.Single) || v.Type.IsKnownType(KnownTypeCode.Double))
 						&& inlinedExpression is CallInstruction producer && producer.Method.ReturnType.Equals(v.Type)
 						&& (producer.Method.IsStatic || producer.Method.DeclaringType.IsReferenceType == true && producer.Arguments.FirstOrDefault() is LdLoc { Variable.Type.IsReferenceType: true })
@@ -825,6 +827,24 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 				default:
 					return false;
 			}
+
+		static bool CanInlineExactValueArgument(CallInstruction consumer, ILInstruction load, ILInstruction expression, ILVariable variable)
+		{
+			if (consumer == null || variable.Type.Kind != TypeKind.Struct || variable.Type.IsByRefLike
+				|| consumer.Arguments.Count != consumer.Method.Parameters.Count + (consumer.Method.IsStatic ? 0 : 1)
+				|| !consumer.Method.IsStatic && (consumer.Method.DeclaringType.IsReferenceType != true
+					|| consumer.Arguments.FirstOrDefault() is not LdLoc { Variable.Type.IsReferenceType: true }))
+				return false;
+			int parameter = consumer.Arguments.IndexOf(load) - (consumer.Method.IsStatic ? 0 : 1);
+			if (parameter < 0 || !consumer.Method.Parameters[parameter].Type.Equals(variable.Type))
+				return false;
+			// FindLoadInNext has already checked evaluation order and aliases.
+			// A complete value copy adds no conversion or rounding boundary.
+			return expression is LdLoc local && local.Variable.Type.Equals(variable.Type)
+				|| expression is LdObj { IsVolatile: false, UnalignedPrefix: 0, Target: LdElema } element && element.Type.Equals(variable.Type)
+				|| expression is Call producer && producer.Method.IsStatic && producer.Method.IsOperator
+					&& producer.Method.ReturnType.Equals(variable.Type) && consumer.Arguments.LastOrDefault() == load;
+		}
 		}
 
 		/// <summary>
@@ -960,7 +980,20 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 		/// </summary>
 		static bool IsSafeForInlineOver(ILInstruction expr, ILInstruction expressionBeingMoved)
 		{
-			return SemanticHelper.MayReorder(expressionBeingMoved, expr);
+			if (SemanticHelper.MayReorder(expressionBeingMoved, expr))
+				return true;
+			// Heap reads share the conservative SideEffect flag with writes.
+			// A plain array read with pure inputs cannot overwrite an addressed
+			// local. Its exceptions remain at the read; only the local copy moves.
+			if (expressionBeingMoved is not LdLoc)
+				return false;
+			var address = expr as LdElema;
+			if (expr is LdObj { IsVolatile: false, UnalignedPrefix: 0, Target: LdElema element })
+				address = element;
+			else if (address?.Parent is not LdObj { IsVolatile: false, UnalignedPrefix: 0 })
+				return false;
+			return address != null && !address.WithSystemIndex && address.Indices.Count == 1
+				&& SemanticHelper.IsPure(address.Array.Flags) && address.Indices.All(i => SemanticHelper.IsPure(i.Flags));
 		}
 
 		/// <summary>
