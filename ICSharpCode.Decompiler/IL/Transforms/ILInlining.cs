@@ -796,6 +796,12 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 				case OpCode.Leave:
 				case OpCode.YieldReturn:
 					return true;
+				case OpCode.Throw:
+					// The private local adds no conversion or observable evaluation
+					// between an exact reference construction and its only throw.
+					return inlinedExpression is NewObj construction
+						&& v.Type.IsReferenceType == true
+						&& construction.Method.DeclaringType.Equals(v.Type);
 				case OpCode.SwitchInstruction:
 					// Preserve type info on switch instruction, if we're inlining a local variable into the switch-value slot.
 					if (v.Kind != VariableKind.StackSlot && loadInst.SlotInfo == SwitchInstruction.ValueSlot)

@@ -184,6 +184,20 @@ namespace ICSharpCode.Decompiler.IL
 
 			Debug.Assert(ifInst != block.Instructions.Last());
 
+			// Keep a freshly constructed exception in a guard before a simple
+			// function return. Only the condition is negated; neither expression
+			// crosses the condition or changes its selected execution path.
+			int guardIndex = block.Instructions.IndexOf(ifInst);
+			if (guardIndex + 2 == block.Instructions.Count
+				&& block.Instructions.Last() is Throw { Argument: NewObj }
+				&& ifInst.TrueInst is Block { FinalInstruction: Nop } returnBlock
+				&& returnBlock.Instructions.Count == 1
+				&& returnBlock.Instructions[0] is Leave { IsLeavingFunction: true })
+			{
+				ConditionDetection.InvertIf(block, ifInst, context);
+				return;
+			}
+
 			// Keep a short terminal alternative in a guard, even when the native
 			// layout placed it after a larger arm beginning with the same return.
 			int index = block.Instructions.IndexOf(ifInst);
