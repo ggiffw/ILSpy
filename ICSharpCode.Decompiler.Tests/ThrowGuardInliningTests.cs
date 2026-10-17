@@ -85,6 +85,7 @@ public class ThrowGuardInliningTests
 	[TestCase(3)]
 	[TestCase(4)]
 	[TestCase(6)]
+	[TestCase(7)]
 	public void PreferAdjacentConstructionThrowGuard(int mutation)
 	{
 		var (dec, function, body, entry, ctor) = Create();
@@ -100,7 +101,7 @@ public class ThrowGuardInliningTests
 			((Block)guard.TrueInst).Instructions[0] = new Throw(new LdNull());
 		if (mutation == 6)
 			((Block)guard.TrueInst).Instructions.Insert(0, new StLoc(parameter, new LdNull()));
-		entry.Instructions.Add(mutation == 4 ? new Throw(new LdNull()) : new Throw(new NewObj(ctor) { Arguments = { new LdStr("failure") } }));
+		entry.Instructions.Add(mutation == 4 ? new Throw(new LdNull()) : mutation == 7 ? new Throw(new NewObj(ctor.DeclaringType.GetConstructors().Single(m => m.Parameters.Count == 0))) : new Throw(new NewObj(ctor) { Arguments = { new LdStr("failure") } }));
 		new ReduceNestingTransform().Run(function, dec.CreateILTransformContext(function));
 		Assert.That(((Comp)guard.Condition).Kind, Is.EqualTo(mutation is 0 or 6 ? ComparisonKind.Equality : ComparisonKind.Inequality));
 		Assert.That(entry.Instructions.Last() is Leave, Is.EqualTo(mutation is 0 or 6));

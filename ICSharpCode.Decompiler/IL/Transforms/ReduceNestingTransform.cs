@@ -184,12 +184,14 @@ namespace ICSharpCode.Decompiler.IL
 
 			Debug.Assert(ifInst != block.Instructions.Last());
 
-			// Keep a freshly constructed exception in a guard before a simple
+			// Keep a freshly constructed diagnostic exception in a guard before a
 			// function return arm. Only the condition is negated; neither arm
 			// crosses the condition or changes its selected execution path.
+			// Parameterless runtime-failure checks retain the IL ordering policy.
 			int guardIndex = block.Instructions.IndexOf(ifInst);
 			if (guardIndex + 2 == block.Instructions.Count
-				&& block.Instructions.Last() is Throw { Argument: NewObj }
+				&& block.Instructions.Last() is Throw { Argument: NewObj diagnostic }
+				&& diagnostic.Arguments.Count > 0
 				&& ifInst.TrueInst is Block { FinalInstruction: Nop } returnBlock
 				&& returnBlock.Instructions.LastOrDefault() is Leave { IsLeavingFunction: true })
 			{
