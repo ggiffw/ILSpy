@@ -48,6 +48,11 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			this.context = context;
 			if (context.Settings.MakeAssignmentExpressions)
 			{
+				if (TransformScalarArrayCompoundAssignment(block, pos))
+				{
+					context.RequestRerun();
+					return;
+				}
 				if (TransformInlineAssignmentStObjOrCall(block, pos) || TransformInlineAssignmentLocal(block, pos))
 				{
 					// both inline assignments create a top-level stloc which might affect inlining
@@ -66,6 +71,44 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return;
 				}
 			}
+		}
+
+		bool TransformScalarArrayCompoundAssignment(Block block, int pos)
+		{
+			if (!context.Settings.IntroduceIncrementAndDecrement
+				|| block.Instructions[pos] is not StLoc temporary
+				|| !temporary.Variable.IsSingleDefinition || temporary.Variable.LoadCount != 1
+				|| temporary.Variable.CaptureScope != null || temporary.Variable.UsesInitialValue
+				|| !temporary.Variable.Type.IsKnownType(KnownTypeCode.Single)
+				|| temporary.Value is not BinaryNumericInstruction { Operator: BinaryNumericOperator.Mul, CheckForOverflow: false, IsLifted: false } binary
+				|| block.Instructions[pos + 1] is not StObj { IsVolatile: false, UnalignedPrefix: 0 } store
+				|| !store.Type.IsKnownType(KnownTypeCode.Single) || !store.Value.MatchLdLoc(temporary.Variable))
+				return false;
+			ILInstruction SingleOperand(ILInstruction operand) => operand is Conv { InputType: StackType.F4, TargetType: PrimitiveType.R4, CheckForOverflow: false, IsLifted: false } conversion ? conversion.Argument : operand;
+			if (SingleOperand(binary.Left) is not LdObj { IsVolatile: false, UnalignedPrefix: 0 } load
+				|| !load.Type.IsKnownType(KnownTypeCode.Single) || SingleOperand(binary.Right) is not LdcF4 factor
+				|| float.IsNaN(factor.Value) || float.IsInfinity(factor.Value)
+				|| load.Target is not LdFlda { Target: LdElema { Array: LdLoc array, Indices.Count: 1 } element } field
+				|| !field.Field.Type.IsKnownType(KnownTypeCode.Single) || !field.Field.DeclaringType.IsReferenceType.HasValue
+				|| field.Field.DeclaringType.IsReferenceType.Value || !element.Type.Equals(field.Field.DeclaringType)
+				|| array.Variable.Type is not ArrayType { Dimensions: 1 } arrayType || !arrayType.ElementType.Equals(element.Type)
+				|| array.Variable.AddressCount != 0 || array.Variable.CaptureScope != null
+				|| element.Indices[0] is not LdLoc index || index.Variable.AddressCount != 0 || index.Variable.CaptureScope != null
+				|| index.Variable.Type.ToPrimitiveType() is not (PrimitiveType.I4 or PrimitiveType.I8)
+				|| !load.Target.Match(store.Target).Success || !ValidateCompoundAssign(binary, null, store.Type, context))
+				return false;
+			// The first address computation checks this exact array and index.
+			// Adjacent stores with unescaped local operands cannot make the
+			// repeated address throw or change its value. Keep the original
+			// scalar multiplication order and its single-precision store.
+			context.Step("Compound assignment to scalar array component", temporary);
+			var compound = new NumericCompoundAssign(binary, load.Target, CompoundTargetKind.Address,
+				SingleOperand(binary.Right), store.Type, CompoundEvalMode.EvaluatesToNewValue, context);
+			compound.AddILRange(temporary);
+			compound.AddILRange(store);
+			block.Instructions[pos] = compound;
+			block.Instructions.RemoveAt(pos + 1);
+			return true;
 		}
 
 		/// <code>
