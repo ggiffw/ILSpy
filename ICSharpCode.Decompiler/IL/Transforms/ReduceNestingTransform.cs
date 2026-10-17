@@ -22,6 +22,7 @@ using System.Linq;
 
 using ICSharpCode.Decompiler.IL.ControlFlow;
 using ICSharpCode.Decompiler.IL.Transforms;
+using ICSharpCode.Decompiler.TypeSystem;
 using ICSharpCode.Decompiler.Util;
 
 namespace ICSharpCode.Decompiler.IL
@@ -192,8 +193,9 @@ namespace ICSharpCode.Decompiler.IL
 			if (guardIndex + 2 == block.Instructions.Count
 				&& block.Instructions.Last() is Throw { Argument: NewObj diagnostic }
 				&& diagnostic.Arguments.Count > 0
-				&& ifInst.TrueInst is Block { FinalInstruction: Nop } returnBlock
-				&& returnBlock.Instructions.LastOrDefault() is Leave { IsLeavingFunction: true })
+				&& (Block.Unwrap(ifInst.TrueInst) is Leave { IsLeavingFunction: true }
+					|| ifInst.TrueInst is Block { FinalInstruction: Nop } returnBlock
+					&& returnBlock.Instructions.LastOrDefault() is Leave { IsLeavingFunction: true }))
 			{
 				ConditionDetection.InvertIf(block, ifInst, context);
 				return;
@@ -274,7 +276,7 @@ namespace ICSharpCode.Decompiler.IL
 			if (ifInst.FalseInst.MatchNop())
 			{
 				// a separate heuristic to ShouldReduceNesting as there is visual balancing to be performed based on number of statments
-				if (maxDepth < 2)
+				if (maxDepth < 2 && !HasLeadingNegatedOperator(ifInst.Condition))
 					return false;
 
 				//   ->
@@ -345,6 +347,18 @@ namespace ICSharpCode.Decompiler.IL
 			} while (ifInst != null);
 
 			return true;
+		}
+
+		static bool HasLeadingNegatedOperator(ILInstruction condition)
+		{
+			while (condition.MatchLogicAnd(out var left, out _))
+				condition = left;
+			// Keep the original overloaded call in an early keyword guard.
+			// Negating its result never assumes that another operator is its inverse.
+			return condition.MatchLogicNot(out var argument)
+				&& argument is Call call && call.Method.IsOperator && call.Method.IsStatic
+				&& call.Method.Name is "op_Equality" or "op_Inequality"
+				&& call.Method.ReturnType.IsKnownType(KnownTypeCode.Boolean);
 		}
 
 		/// <summary>

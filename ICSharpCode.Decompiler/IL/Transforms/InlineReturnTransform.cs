@@ -83,9 +83,27 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return false;
 				if (!(store.Parent is Block storeBlock))
 					return false;
-				if (store.ChildIndex + 2 != storeBlock.Instructions.Count)
-					return false;
-				if (!(storeBlock.Instructions[store.ChildIndex + 1] is Branch br))
+				int branchIndex = store.ChildIndex + 1;
+				Branch br;
+				if (store.ChildIndex + 3 == storeBlock.Instructions.Count
+					&& returnVar.LoadCount == 1 && returnVar.AddressCount == 0
+					&& returnVar.Type.IsReferenceType == true && store.Value.MatchLdNull()
+					&& storeBlock.Instructions[branchIndex] is IfInstruction conditional
+					&& conditional.TrueInst is Branch conditionalBranch && conditional.FalseInst.MatchNop()
+					&& storeBlock.Instructions[branchIndex + 1] is Branch fallthrough
+					&& (conditionalBranch.TargetBlock == leaveBlock) != (fallthrough.TargetBlock == leaveBlock))
+				{
+					// Keep the initialization and condition in place. A private
+					// return block on each edge lets the regular splitter distinguish
+					// the default path from the later successful assignment.
+					br = conditionalBranch.TargetBlock == leaveBlock ? conditionalBranch : fallthrough;
+				}
+				else if (branchIndex + 1 == storeBlock.Instructions.Count
+					&& storeBlock.Instructions[branchIndex] is Branch direct)
+				{
+					br = direct;
+				}
+				else
 					return false;
 				if (br.TargetBlock != leaveBlock)
 					return false;

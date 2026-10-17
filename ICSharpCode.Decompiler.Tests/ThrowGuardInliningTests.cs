@@ -124,4 +124,82 @@ public class ThrowGuardInliningTests
 		Assert.That(call.Method, Is.SameAs(method));
 		Assert.That(entry.Instructions.Last(), Is.TypeOf<Leave>());
 	}
+
+	[TestCase(false)]
+	[TestCase(true)]
+	public void PreferExceptionGuardForDirectAndWrappedReturns(bool wrapped)
+	{
+		var (dec, function, body, entry, ctor) = Create();
+		var call = new Call(dec.TypeSystem.FindType(KnownTypeCode.String).GetMethods().Single(m => m.Name == "op_Equality")) { Arguments = { new LdNull(), new LdNull() } };
+		var leave = new Leave(body, new LdNull());
+		var guard = new IfInstruction(Comp.LogicNot(call), wrapped ? Arm(leave) : leave);
+		entry.Instructions.Add(guard);
+		entry.Instructions.Add(new Throw(new NewObj(ctor) { Arguments = { new LdStr("failure") } }));
+		new ReduceNestingTransform().Run(function, dec.CreateILTransformContext(function));
+		Assert.That(guard.Condition, Is.SameAs(call));
+		Assert.That(entry.Instructions.Last(), Is.SameAs(leave));
+		Assert.That(function.Descendants.OfType<Call>().Single(), Is.SameAs(call));
+	}
+
+	[TestCase(0)]
+	[TestCase(1)]
+	[TestCase(2)]
+	[TestCase(3)]
+	[TestCase(4)]
+	public void PreferKeywordGuardWithoutComplementingOperator(int mutation)
+	{
+		var (dec, function, body, entry, _) = Create();
+		var type = dec.TypeSystem.FindType(mutation == 4 ? KnownTypeCode.Object : KnownTypeCode.String);
+		var method = type.GetMethods().Single(m => m.Name == (mutation == 4 ? "ReferenceEquals" : mutation == 1 ? "op_Inequality" : "op_Equality"));
+		var call = new Call(method) { Arguments = { new LdNull(), new LdNull() } };
+		var marker = function.RegisterVariable(VariableKind.Local, dec.TypeSystem.FindType(KnownTypeCode.Int32));
+		ILInstruction condition = mutation == 3 ? call : Comp.LogicNot(call);
+		if (mutation == 2)
+		{
+			var flag = function.RegisterVariable(VariableKind.Parameter, dec.TypeSystem.FindType(KnownTypeCode.Boolean), "flag");
+			condition = IfInstruction.LogicAnd(condition, new LdLoc(flag), dec.TypeSystem);
+		}
+		var guard = new IfInstruction(condition, Arm(new StLoc(marker, new LdcI4(5))));
+		entry.Instructions.Add(guard);
+		entry.Instructions.Add(new Leave(body));
+		new ReduceNestingTransform().Run(function, dec.CreateILTransformContext(function));
+		Assert.That(guard.TrueInst is Leave, Is.EqualTo(mutation < 3));
+		Assert.That(function.Descendants.OfType<Call>().Single(), Is.SameAs(call));
+		Assert.That(call.Method, Is.SameAs(method));
+	}
+
+	[TestCase(0)]
+	[TestCase(1)]
+	[TestCase(2)]
+	[TestCase(3)]
+	[TestCase(4)]
+	public void SplitClosedConditionalDefaultReturn(int mutation)
+	{
+		var dec = new CSharpDecompiler(typeof(object).Assembly.Location, new DecompilerSettings { ThrowOnAssemblyResolveErrors = false });
+		var identity = dec.TypeSystem.FindType(KnownTypeCode.Object).GetMethods().Single(m => m.Name == "ToString" && m.Parameters.Count == 0);
+		var body = new BlockContainer();
+		var function = new ILFunction(identity, 0, new GenericContext(), body, ILFunctionKind.TopLevelFunction);
+		var addRef = typeof(ILInstruction).GetMethod("AddRef", BindingFlags.Instance | BindingFlags.NonPublic);
+		Assert.That(addRef, Is.Not.Null);
+		addRef!.Invoke(function, null);
+		var value = function.RegisterVariable(VariableKind.Local, dec.TypeSystem.FindType(KnownTypeCode.String), "value");
+		var condition = function.RegisterVariable(VariableKind.Parameter, dec.TypeSystem.FindType(KnownTypeCode.Boolean), "condition");
+		var entry = new Block(); var work = new Block(); var exit = new Block();
+		body.Blocks.AddRange(new[] { entry, work, exit });
+		entry.Instructions.Add(new StLoc(value, mutation == 3 ? new LdStr("fallback") : new LdNull()));
+		if (mutation == 1)
+			entry.Instructions.Add(new StLoc(function.RegisterVariable(VariableKind.Local, value.Type), new LdLoc(value)));
+		if (mutation == 2)
+			entry.Instructions.Add(new StLoc(function.RegisterVariable(VariableKind.Local, new ByReferenceType(value.Type)), new LdLoca(value)));
+		entry.Instructions.Add(new IfInstruction(new LdLoc(condition), new Branch(mutation == 4 ? exit : work)));
+		entry.Instructions.Add(new Branch(mutation == 4 ? work : exit));
+		work.Instructions.Add(new StLoc(value, new LdStr("built")));
+		work.Instructions.Add(new Branch(exit));
+		exit.Instructions.Add(new Leave(body, new LdLoc(value)));
+		var transformType = typeof(ILInlining).Assembly.GetType("ICSharpCode.Decompiler.IL.Transforms.InlineReturnTransform");
+		Assert.That(transformType, Is.Not.Null);
+		transformType!.GetMethod("Run")!.Invoke(System.Activator.CreateInstance(transformType), new object[] { function, dec.CreateILTransformContext(function) });
+		Assert.That(function.Descendants.OfType<Leave>().Count(), Is.EqualTo(mutation is 0 or 4 ? 2 : 1));
+		Assert.That(function.Descendants.OfType<StLoc>().Count(s => s.Variable == value), Is.EqualTo(2));
+	}
 }
