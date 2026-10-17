@@ -117,7 +117,8 @@ namespace ICSharpCode.Decompiler.IL
 						ImproveILOrdering(block, ifInst, continueTarget);
 
 						// reduce nesting in if/else blocks
-						if (CanDuplicateExit(NextInsn(), continueTarget, out var keywordExit2) && ReduceNesting(block, ifInst, keywordExit2))
+						if ((CanDuplicateExit(NextInsn(), continueTarget, out var keywordExit2)
+							|| CanDuplicateCacheReturn(ifInst, keywordExit2)) && ReduceNesting(block, ifInst, keywordExit2))
 							RemoveRedundantExit(block, nextInstruction);
 
 						// visit content blocks
@@ -349,6 +350,25 @@ namespace ICSharpCode.Decompiler.IL
 			return true;
 		}
 
+		static bool CanDuplicateCacheReturn(IfInstruction guard, ILInstruction exit)
+		{
+			if (!guard.FalseInst.MatchNop()
+				|| guard.TrueInst is not Block { FinalInstruction: Nop } body || body.Instructions.Count < 2
+				|| exit is not Leave { IsLeavingFunction: true, Value: LdObj { IsVolatile: false, UnalignedPrefix: 0, Target: LdsFlda returned } read }
+				|| read.Type.IsReferenceType != true
+				|| !guard.Condition.MatchLogicNot(out var condition)
+				|| condition is not Call call || !call.Method.IsStatic || !call.Method.IsOperator
+				|| call.Method.Name != "op_Inequality" || !call.Method.ReturnType.IsKnownType(KnownTypeCode.Boolean)
+				|| call.Arguments.Count != 2 || call.Method.Parameters.Count != 2)
+				return false;
+			// Duplicate the selected path's final read, not its earlier condition
+			// snapshot. The overloaded call may mutate the field or throw.
+			var fieldRead = call.Arguments[0] is LdNull ? call.Arguments[1] : call.Arguments[0];
+			var nullArgument = call.Arguments[0] is LdNull ? call.Arguments[0] : call.Arguments[1];
+			return nullArgument is LdNull
+				&& fieldRead is LdObj { IsVolatile: false, UnalignedPrefix: 0, Target: LdsFlda tested } testedRead
+				&& tested.Field.Equals(returned.Field) && testedRead.Type.Equals(read.Type);
+		}
 		static bool HasLeadingNegatedOperator(ILInstruction condition)
 		{
 			while (condition.MatchLogicAnd(out var left, out _))

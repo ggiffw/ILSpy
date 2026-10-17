@@ -759,6 +759,8 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return true; // inline size-expressions into localloc.span
 				case OpCode.Call:
 				case OpCode.CallVirt:
+					if (CanInlineCollectionReceiver(parent as CallInstruction, loadInst, inlinedExpression, v))
+						return true;
 					if (CanInlineExactValueArgument(parent as CallInstruction, loadInst, inlinedExpression, v))
 						return true;
 					if ((v.Type.IsKnownType(KnownTypeCode.Single) || v.Type.IsKnownType(KnownTypeCode.Double))
@@ -834,6 +836,19 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					return false;
 			}
 
+		static bool CanInlineCollectionReceiver(CallInstruction consumer, ILInstruction load, ILInstruction expression, ILVariable variable)
+		{
+			// FindLoadInNext checked uses, aliases and intervening evaluations.
+			// A C# instance receiver is evaluated before every argument, including
+			// collection construction and Add calls that can replace the field.
+			return consumer is CallVirt && consumer.ConstrainedTo == null && !consumer.Method.IsStatic
+				&& variable.Type.IsReferenceType == true && consumer.Method.DeclaringType.Equals(variable.Type)
+				&& consumer.Arguments.Count == consumer.Method.Parameters.Count + 1
+				&& consumer.Arguments[0] == load
+				&& consumer.Arguments.Skip(1).Any(a => a is Block { Kind: BlockKind.CollectionInitializer })
+				&& expression is LdObj { IsVolatile: false, UnalignedPrefix: 0, Target: LdsFlda } fieldRead
+				&& fieldRead.Type.Equals(variable.Type);
+		}
 		static bool CanInlineExactValueArgument(CallInstruction consumer, ILInstruction load, ILInstruction expression, ILVariable variable)
 		{
 			if (consumer == null || variable.Type.Kind != TypeKind.Struct || variable.Type.IsByRefLike
