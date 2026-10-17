@@ -43,7 +43,7 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			{
 				if (loop.Kind != ContainerKind.Loop)
 					continue;
-				if (context.Settings.ForStatement && MatchGuardedArrayLoop(loop))
+				if (context.Settings.ForStatement && (MatchGuardedArrayLoop(loop) || MatchGuardedCachedLengthArrayLoop(loop)))
 					continue;
 				if (MatchWhileLoop(loop, out var condition, out var loopBody))
 				{
@@ -115,6 +115,90 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 					load.ReplaceWith(new LdLoc(index));
 				else if (load.Variable == length.Variable)
 					load.ReplaceWith(lastLength.Clone());
+			}
+			var increment = new StLoc(index, add.Clone());
+			var body = new Block();
+			var step = new Block();
+			foreach (var statement in statements)
+			{
+				block.Instructions.Remove(statement);
+				body.Instructions.Add(statement);
+			}
+			block.Instructions.Clear();
+			block.Instructions.Add(new IfInstruction(comparison, new Branch(body), new Leave(loop)));
+			body.Instructions.Add(new Branch(step));
+			step.Instructions.Add(increment);
+			step.Instructions.Add(new Branch(block));
+			loop.Blocks.Add(body);
+			loop.Blocks.Add(step);
+			loop.Kind = ContainerKind.For;
+			int position = initialLength.ChildIndex;
+			arm.Instructions.Clear();
+			outer.Instructions.RemoveRange(position, 2);
+			outer.Instructions.Insert(position, seed);
+			outer.Instructions.Insert(position + 1, loop);
+			ExpressionTransforms.RunOnSingleStatement(block.Instructions[0], context);
+			ExpressionTransforms.RunOnSingleStatement(increment, context);
+			context.Function.Variables.RemoveDead();
+			return true;
+		}
+
+		bool MatchGuardedCachedLengthArrayLoop(BlockContainer loop)
+		{
+			// The cached length is immutable and the unit increment follows the body.
+			// Only an immutable array reference permits replacing the entry guard and latch
+			// with one condition without moving an observable read or exception.
+			if (loop.Blocks.Count != 1 || loop.Parent is not Block arm
+				|| arm.Instructions.Count != 2 || arm.Instructions[1] != loop
+				|| arm.Parent is not IfInstruction guard || guard.TrueInst != arm
+				|| !guard.FalseInst.MatchNop() || guard.Parent is not Block outer
+				|| guard.ChildIndex < 1 || outer.Instructions[guard.ChildIndex - 1] is not StLoc initialLength
+				|| initialLength.Value is not LdLen { ResultType: StackType.I4 } firstLength
+				|| !firstLength.Array.MatchLdLoc(out var array) || !array.IsSingleDefinition
+				|| array.CaptureScope != null || array.Type is not ArrayType { Dimensions: 1 }
+				|| array.StoreInstructions.Count != 1 || array.StoreInstructions[0] is not StLoc arrayStore || arrayStore.Parent != outer
+				|| arrayStore.ChildIndex >= initialLength.ChildIndex
+				|| !OnlyLocalUses(initialLength.Variable, 1, 2) || !initialLength.Variable.Type.IsKnownType(KnownTypeCode.Int32)
+				|| guard.Condition is not Comp { Kind: ComparisonKind.GreaterThanOrEqual, Sign: Sign.Signed, InputType: StackType.I4, IsLifted: false } entryTest
+				|| !entryTest.Left.MatchLdLoc(initialLength.Variable) || !entryTest.Right.MatchLdcI4(1)
+				|| arm.Instructions[0] is not StLoc seed || !seed.Value.MatchLdcI(0))
+				return false;
+			var index = seed.Variable;
+			if (index.Type.GetDefinition()?.KnownTypeCode is not (KnownTypeCode.Int32 or KnownTypeCode.Int64)
+				|| seed.Value.ResultType != index.StackType || !OnlyLocalUses(index, 2, index.LoadCount))
+				return false;
+			var block = loop.EntryPoint;
+			int count = block.Instructions.Count;
+			if (count < 6 || block.IncomingEdgeCount != 2
+				|| block.Instructions[count - 5] is not StLoc next
+				|| !OnlyLocalUses(next.Variable, 1, 2) || !next.Variable.Type.Equals(index.Type)
+				|| next.Value is not BinaryNumericInstruction { Operator: BinaryNumericOperator.Add, CheckForOverflow: false, IsLifted: false } add
+				|| add.ResultType != index.StackType || add.LeftInputType != index.StackType || add.RightInputType != index.StackType
+				|| !WithoutIdentityConversion(add.Left).MatchLdLoc(index) || !WithoutIdentityConversion(add.Right).MatchLdcI(1)
+				|| block.Instructions[count - 4] is not StLoc condition
+				|| !OnlyLocalUses(condition.Variable, 1, 1) || condition.Variable.Type.GetDefinition()?.KnownTypeCode != KnownTypeCode.Boolean
+				|| condition.Value is not Comp { Kind: ComparisonKind.LessThan, Sign: Sign.Signed, IsLifted: false } test
+				|| test.InputType != index.StackType || !WithoutIdentityConversion(test.Left).MatchLdLoc(next.Variable)
+				|| !IsLengthConversion(test.Right, initialLength.Variable, index.StackType)
+				|| !block.Instructions[count - 3].MatchStLoc(index, out var copy) || !copy.MatchLdLoc(next.Variable)
+				|| block.Instructions[count - 2] is not IfInstruction exit || !exit.Condition.MatchLogicNot(out var flag)
+				|| !flag.MatchLdLoc(condition.Variable) || !exit.TrueInst.MatchLeave(loop) || !exit.FalseInst.MatchNop()
+				|| !block.Instructions[count - 1].MatchBranch(block))
+				return false;
+			var statements = block.Instructions.Take(count - 5).ToArray();
+			if (statements.Any(s => s.HasFlag(InstructionFlags.MayBranch | InstructionFlags.ControlFlow))
+				|| index.LoadInstructions.Any(l => !l.IsDescendantOf(block))
+				|| index.StoreInstructions.Any(s => s != seed && s != block.Instructions[count - 3]))
+				return false;
+
+			context.Step("Recover guarded cached-length array for loop", loop);
+			var comparison = (Comp)test.Clone();
+			foreach (var load in comparison.Descendants.OfType<LdLoc>().ToArray())
+			{
+				if (load.Variable == next.Variable)
+					load.ReplaceWith(new LdLoc(index));
+				else if (load.Variable == initialLength.Variable)
+					load.ReplaceWith(firstLength.Clone());
 			}
 			var increment = new StLoc(index, add.Clone());
 			var body = new Block();
