@@ -39,6 +39,94 @@ namespace ICSharpCode.Decompiler.Tests
 		[TestCase(4)]
 		[TestCase(5)]
 		[TestCase(6)]
+		[TestCase(7)]
+		[TestCase(8)]
+		[TestCase(9)]
+		[TestCase(10)]
+		[TestCase(11)]
+		public void SharedJoinFallbacksKeepPrivateSnapshotsAndReferenceNullSemantics(int invalid)
+		{
+			var decompiler = new CSharpDecompiler(typeof(object).Assembly.Location, new DecompilerSettings { ThrowOnAssemblyResolveErrors = false });
+			var objectType = decompiler.TypeSystem.FindType(KnownTypeCode.Object);
+			var booleanType = decompiler.TypeSystem.FindType(KnownTypeCode.Boolean);
+			var container = new BlockContainer();
+			var identity = objectType.GetMethods().First(m => m.Name == "MemberwiseClone");
+			var function = new ILFunction(identity, 0, new GenericContext(), container);
+			var value = function.RegisterVariable(VariableKind.Local, objectType, "value");
+			var first = function.RegisterVariable(VariableKind.Parameter, objectType, "first");
+			var second = function.RegisterVariable(VariableKind.Parameter, objectType, "second");
+			var last = function.RegisterVariable(VariableKind.Parameter, objectType, "last");
+			var entry = new Block();
+			var fallback = new Block();
+			var terminal = new Block();
+			var join = new Block();
+			container.Blocks.AddRange(new[] { entry, fallback, terminal, join });
+			ILVariable Guard(Block block, ILVariable input, Block next)
+			{
+				var source = function.RegisterVariable(VariableKind.Local, objectType, "source");
+				var flag = function.RegisterVariable(VariableKind.Local, booleanType, "flag");
+				block.Instructions.Add(new StLoc(source, new LdLoc(input)));
+				block.Instructions.Add(new StLoc(flag, new Comp(ComparisonKind.Equality, Sign.None, new LdLoc(source), new LdNull())));
+				block.Instructions.Add(new StLoc(value, new LdLoc(source)));
+				block.Instructions.Add(new IfInstruction(new LdLoc(flag), new Branch(next)));
+				block.Instructions.Add(new Branch(join));
+				return source;
+			}
+			var snapshot = Guard(entry, first, fallback);
+			Guard(fallback, second, terminal);
+			terminal.Instructions.Add(new StLoc(value, new LdLoc(last)));
+			terminal.Instructions.Add(new Branch(join));
+			join.Instructions.Add(new Leave(container, new LdLoc(value)));
+			if (invalid == 1)
+				((Comp)((StLoc)entry.Instructions[1]).Value).Kind = ComparisonKind.Inequality;
+			if (invalid == 2)
+				((StLoc)entry.Instructions[2]).Value = new LdLoc(second);
+			if (invalid == 3)
+				join.Instructions.Insert(0, new StLoc(last, new LdLoc(snapshot)));
+			if (invalid == 4)
+				join.Instructions.Insert(0, new StLoc(last, new LdLoca(value)));
+			if (invalid == 5)
+				join.Instructions.Insert(0, new StLoc(value, new LdLoc(first)));
+			if (invalid == 6)
+			{
+				var other = new Block();
+				other.Instructions.Add(new Branch(fallback));
+				container.Blocks.Add(other);
+			}
+			if (invalid == 7)
+				((StLoc)terminal.Instructions[0]).Value = new LdLoc(value);
+			if (invalid == 8)
+				terminal.Instructions[1] = new Branch(entry);
+			if (invalid == 9)
+				terminal.Instructions.Insert(1, new Nop());
+			if (invalid == 10)
+				join.Instructions.Insert(0, new StLoc(last, new LdLoca(snapshot)));
+			if (invalid == 11)
+				((StLoc)entry.Instructions[1]).Value = new Comp(ComparisonKind.Equality, Sign.None, new LdLoc(snapshot), new LdLoc(second));
+			typeof(ILInstruction).GetMethod("AddRef", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(function, null);
+			((IILTransform)new NullCoalescingTransform()).Run(function, decompiler.CreateILTransformContext(function));
+			if (invalid == 0)
+			{
+				Assert.That(entry.Descendants.OfType<NullCoalescingInstruction>().Count(), Is.EqualTo(2));
+				Assert.That(container.Blocks.Count, Is.EqualTo(2));
+				Assert.That(entry.Instructions.Count, Is.EqualTo(2));
+				Assert.That(snapshot.LoadCount, Is.Zero);
+				Assert.That(value.StoreCount, Is.EqualTo(1));
+			}
+			else
+			{
+				Assert.That(entry.Instructions.Count, Is.EqualTo(5));
+				Assert.That(entry.Descendants.OfType<NullCoalescingInstruction>(), Is.Empty);
+			}
+		}
+
+		[TestCase(0)]
+		[TestCase(1)]
+		[TestCase(2)]
+		[TestCase(3)]
+		[TestCase(4)]
+		[TestCase(5)]
+		[TestCase(6)]
 		public void TerminalFallbacksRequireClosedReferenceNullTests(int invalid)
 		{
 			var decompiler = new CSharpDecompiler(typeof(object).Assembly.Location, new DecompilerSettings { ThrowOnAssemblyResolveErrors = false });

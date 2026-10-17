@@ -39,6 +39,22 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			if (function.Body is not BlockContainer container)
 				return;
 			HashSet<Block> initiallyReachable = null;
+			if (!container.Descendants.Any(i => i is TryCatch or TryFinally or TryFault))
+			{
+				foreach (var block in container.Blocks.ToArray())
+				{
+					context.CancellationToken.ThrowIfCancellationRequested();
+					if (!TryBuildSharedJoinFallback(block, container, out var variable, out var value, out var join))
+						continue;
+					context.Step("NullCoalescingTransform: private snapshots with shared join", block);
+					initiallyReachable ??= container.TopologicalSort(deleteUnreachableBlocks: true).ToHashSet();
+					var store = new StLoc(variable, value);
+					store.AddILRange(block);
+					block.Instructions.Clear();
+					block.Instructions.Add(store);
+					block.Instructions.Add(new Branch(join));
+				}
+			}
 			foreach (var block in container.Blocks.ToArray())
 			{
 				context.CancellationToken.ThrowIfCancellationRequested();
@@ -64,6 +80,62 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 				container.Blocks.RemoveAll(b => initiallyReachable.Contains(b) && !stillReachable.Contains(b));
 				container.SortBlocks();
 			}
+		}
+
+		static bool TryBuildSharedJoinFallback(Block entry, BlockContainer container,
+			out ILVariable variable, out ILInstruction value, out Block join)
+		{
+			variable = null;
+			value = null;
+			join = null;
+			var parts = new List<ILInstruction>();
+			var visited = new HashSet<Block>();
+			var block = entry;
+			while (parts.Count < 16 && block.Parent == container && block.IncomingEdgeCount == 1 && visited.Add(block))
+			{
+				if (block.Instructions.Count == 5
+					&& block.Instructions[0] is StLoc source && Private(source.Variable)
+					&& source.Variable.IsSingleDefinition && source.Variable.LoadCount == 2
+					&& block.Instructions[1] is StLoc flag && Private(flag.Variable)
+					&& flag.Variable.IsSingleDefinition && flag.Variable.LoadCount == 1
+					&& flag.Value is Comp { Kind: ComparisonKind.Equality, InputType: StackType.Obj, LiftingKind: ComparisonLiftingKind.None } comparison
+					&& comparison.Left.MatchLdLoc(source.Variable) && comparison.Right.MatchLdNull()
+					&& block.Instructions[2] is StLoc copy && Private(copy.Variable)
+					&& copy.Variable.Type.IsReferenceType == true && copy.Variable.Type.Equals(source.Variable.Type)
+					&& copy.Value.MatchLdLoc(source.Variable)
+					&& block.Instructions[3] is IfInstruction test && test.Condition.MatchLdLoc(flag.Variable)
+					&& test.FalseInst.MatchNop() && test.TrueInst is Branch missing
+					&& block.Instructions[4] is Branch present && present.TargetBlock.Parent == container
+					&& (variable == null || variable == copy.Variable) && (join == null || join == present.TargetBlock))
+				{
+					variable = copy.Variable;
+					join = present.TargetBlock;
+					parts.Add(source.Value);
+					block = missing.TargetBlock;
+					continue;
+				}
+				if (parts.Count == 0 || block.Instructions.Count != 2
+					|| block.Instructions[0] is not StLoc tail || tail.Variable != variable
+					|| block.Instructions[1] is not Branch done || done.TargetBlock != join)
+					return false;
+				parts.Add(tail.Value);
+				var destination = variable;
+				if (variable.StoreCount != parts.Count || visited.Contains(join)
+					|| parts.Any(p => p.ResultType != StackType.Obj || p.Descendants.Any(i =>
+						i is LdLoc load && load.Variable == destination || i is StLoc store && store.Variable == destination
+						|| i.HasDirectFlag(InstructionFlags.ControlFlow))))
+					return false;
+				// No address or exception handler can observe the intermediate null
+				// stores. Each fallback stays conditional, at the same call boundary.
+				value = parts[^1].Clone();
+				for (int n = parts.Count - 2; n >= 0; n--)
+					value = new NullCoalescingInstruction(variable.Type, NullCoalescingKind.Ref, parts[n].Clone(), value);
+				return true;
+			}
+			return false;
+
+			static bool Private(ILVariable local) => local.AddressCount == 0
+				&& local.Kind is VariableKind.Local or VariableKind.StackSlot;
 		}
 
 		// The local is a control-flow temporary, never observed by a callback,
