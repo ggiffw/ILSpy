@@ -171,6 +171,7 @@ namespace ICSharpCode.Decompiler.CSharp.OutputVisitor
 			currentList.Add(identifier);
 			base.WriteIdentifier(identifier);
 			lastTokenEnd = locationProvider.Location;
+			identifier.StorePrintEnd(lastTokenEnd);
 		}
 
 		public override void WritePrimitiveValue(object? value, LiteralFormat format = LiteralFormat.None)

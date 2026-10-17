@@ -62,6 +62,7 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 		internal void SetStartLocation(TextLocation value)
 		{
 			this.startLocation = value;
+			StorePrintEnd(TextLocation.Empty);
 		}
 
 		// The @-escaping is a lexical detail, not structural; exclude it from matching.
@@ -70,7 +71,8 @@ namespace ICSharpCode.Decompiler.CSharp.Syntax
 
 		public override TextLocation EndLocation {
 			get {
-				return new TextLocation(StartLocation.Line, StartLocation.Column + (Name ?? "").Length + (IsVerbatim ? 1 : 0));
+				return base.EndLocation != TextLocation.Empty ? base.EndLocation
+					: new TextLocation(StartLocation.Line, StartLocation.Column + (Name ?? "").Length + (IsVerbatim ? 1 : 0));
 			}
 		}
 

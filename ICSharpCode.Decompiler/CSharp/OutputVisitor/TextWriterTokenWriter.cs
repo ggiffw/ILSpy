@@ -33,6 +33,8 @@ namespace ICSharpCode.Decompiler.CSharp.OutputVisitor
 	public class TextWriterTokenWriter : TokenWriter, ILocatable
 	{
 		readonly TextWriter textWriter;
+		IdentifierOutputNames? identifierNames;
+		int nodeDepth;
 		bool needsIndent = true;
 		bool isAtStartOfLine = true;
 		int line, column;
@@ -66,7 +68,8 @@ namespace ICSharpCode.Decompiler.CSharp.OutputVisitor
 				column++;
 				Length++;
 			}
-			string name = EscapeIdentifier(identifier.Name);
+			identifierNames ??= new IdentifierOutputNames(identifier);
+			string name = EscapeIdentifier(identifierNames.GetName(identifier.Name));
 			textWriter.Write(name);
 			column += name.Length;
 			Length += name.Length;
@@ -609,6 +612,8 @@ namespace ICSharpCode.Decompiler.CSharp.OutputVisitor
 
 		public override void StartNode(AstNode node)
 		{
+			if (nodeDepth++ == 0)
+				identifierNames = new IdentifierOutputNames(node);
 			// Write out the indentation, so that overrides of this method
 			// can rely use the current output length to identify the position of the node
 			// in the output.
@@ -617,6 +622,7 @@ namespace ICSharpCode.Decompiler.CSharp.OutputVisitor
 
 		public override void EndNode(AstNode node)
 		{
+			nodeDepth--;
 		}
 	}
 }

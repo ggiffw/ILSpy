@@ -36,6 +36,7 @@ namespace ICSharpCode.Decompiler
 		readonly ITextOutput output;
 		readonly DecompilerSettings settings;
 		readonly Stack<AstNode> nodeStack = new Stack<AstNode>();
+		IdentifierOutputNames identifierNames;
 		int braceLevelWithinType = -1;
 		bool inDocumentationComment = false;
 		bool firstUsingDeclaration;
@@ -59,7 +60,8 @@ namespace ICSharpCode.Decompiler
 			}
 
 			var definition = GetCurrentDefinition();
-			string name = TextWriterTokenWriter.EscapeIdentifier(identifier.Name);
+			identifierNames ??= new IdentifierOutputNames(identifier);
+			string name = TextWriterTokenWriter.EscapeIdentifier(identifierNames.GetName(identifier.Name));
 			switch (definition)
 			{
 				case IType t:
@@ -528,6 +530,7 @@ namespace ICSharpCode.Decompiler
 		{
 			if (nodeStack.Count == 0)
 			{
+				identifierNames = new IdentifierOutputNames(node);
 				if (IsUsingDeclaration(node))
 				{
 					firstUsingDeclaration = !IsUsingDeclaration(node.PrevSibling);
