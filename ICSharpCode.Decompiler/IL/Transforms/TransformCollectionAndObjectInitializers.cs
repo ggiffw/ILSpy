@@ -47,6 +47,7 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			var insertionPos = initInst.ChildIndex;
 			var siblings = initInst.Parent!.Children;
 			IMethod currentMethod = context.Function.Method!;
+			bool preferLocalStatements = false;
 			// we allow a castclass instruction to wrap the init instruction:
 			// this is needed, for example, for inherited record types used on .NET runtimes (e.g., .NET 4.x),
 			// where covariant return types are not supported.
@@ -66,7 +67,7 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 						// prefer to keep local variables (but not stack slots),
 						// unless we are in a constructor (where inlining object initializers might be critical
 						// for the base ctor call) or a compiler-generated delegate method, which might be used in a query expression.
-						return;
+						preferLocalStatements = true;
 					}
 					// Do not try to transform delegate construction.
 					// DelegateConstruction transform cannot deal with this.
@@ -148,6 +149,13 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			}
 			// The initializer would be empty, there's nothing to do here.
 			if (initializerItemsCount <= 0)
+				return;
+			// A local collection may remain named while its Add calls become an
+			// initializer. Every read must stay in this block: an exception handler
+			// or another control-flow path could observe the earlier assignment.
+			if (preferLocalStatements && (blockKind != BlockKind.CollectionInitializer
+				|| !v.IsSingleDefinition || v.AddressCount != 0
+				|| v.LoadInstructions.Any(load => load.Ancestors.OfType<Block>().FirstOrDefault() != block)))
 				return;
 			context.Step("CollectionOrObjectInitializer", inst);
 			// Create a new block and final slot (initializer target variable)
