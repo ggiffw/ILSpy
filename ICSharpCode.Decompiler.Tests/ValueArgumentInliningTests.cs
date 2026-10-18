@@ -103,6 +103,26 @@ public class ValueArgumentInliningTests
     static void TupleEscape((Value, Value) pair, Sink sink) {
         Value first=pair.Item1; Value second=pair.Item2; int key=Earlier(); Console.WriteLine(pair); sink.Accept(key,first); sink.Accept(key,second);
     }
+    static (Value, Value) sharedTuple;
+    public class AliasSink { public Value Value; public void Accept(int key,Value value) { Value=value; } }
+    static int TupleKey() => 42;
+    static Value TupleOutput { set { sharedTuple.Item2=value; } }
+    static void TupleAliasedSetter(ref (Value, Value) pair, AliasSink sink) {
+        TupleOutput=pair.Item1; Value second=pair.Item2; int key=TupleKey(); sink.Accept(key,second);
+    }
+    public static float RunAliasedTupleFixture() {
+        sharedTuple=(new Value {X=1},new Value {X=2}); var sink=new AliasSink(); TupleAliasedSetter(ref sharedTuple,sink); return sink.Value.X;
+    }
+    [Test]
+    public void TupleBoundaryDoesNotAbsorbByRefPropertyAssignments()
+    {
+        var dec=new CSharpDecompiler(typeof(ValueArgumentInliningTests).Assembly.Location,new DecompilerSettings {ThrowOnAssemblyResolveErrors=false});
+        var method=typeof(ValueArgumentInliningTests).GetMethod(nameof(TupleAliasedSetter),BindingFlags.Static|BindingFlags.NonPublic)!;
+        Assert.That(method,Is.Not.Null);
+        var tree=dec.Decompile(System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(method.MetadataToken));
+        Assert.That(tree.Descendants.OfType<TupleExpression>(),Is.Empty,tree.ToString());
+        Assert.That(tree.Descendants.OfType<ParenthesizedVariableDesignation>(),Is.Empty,tree.ToString());
+    }
     static void EnumeratorBeforeInitializer(IEnumerable<(Value, Value)> input,Sink sink) {
         using var enumerator=input.GetEnumerator();
         Value saved=Make();

@@ -879,7 +879,7 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			while (MatchAssignment(block.Instructions.ElementAtOrDefault(pos), out var targetType, out var valueInst, out var addAssignment))
 			{
 				int index = FindIndex(valueInst, out var tupleAccessAdjustment);
-				if (index < 0 && (allowUnrelatedAssignments || CompleteTupleReads()))
+				if (index < 0 && (allowUnrelatedAssignments || CompleteTupleReads(pos)))
 				{
 					// For a Deconstruct call the element list is fixed by the call's
 					// out-arguments, so an assignment whose value is unrelated to the
@@ -966,12 +966,15 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			anyAssignments = startPos != pos;
 			return true;
 
-			bool CompleteTupleReads()
+			bool CompleteTupleReads(int endPos)
 			{
 				return tupleRoot != null && deconstructionResults != null
+					&& conversions.Count == 0
 					&& previousIndex == deconstructionResults.Length - 1
 					&& deconstructionResults.All(v => v != null)
-					&& tupleNodes.Values.All(n => n.MatchedAccessCount == n.Variable.LoadCount + n.Variable.AddressCount);
+					&& block.Instructions.Skip(startPos).Take(endPos - startPos).All(i => i is StLoc)
+					&& tupleNodes.Values.All(n => n.Variable.StackType != StackType.Ref
+						&& n.MatchedAccessCount == n.Variable.LoadCount + n.Variable.AddressCount);
 			}
 
 			int GetAssignmentIndex(ILInstruction inst)
