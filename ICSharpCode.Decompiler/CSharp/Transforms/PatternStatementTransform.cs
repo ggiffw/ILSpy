@@ -107,7 +107,7 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			if (simplifiedIfElse != null)
 				return simplifiedIfElse;
 			if (ifElseStatement.TrueStatement is not null && ifElseStatement.FalseStatement is not null
-				&& PositiveBooleanCondition(ifElseStatement.Condition) is { } condition)
+				&& PositiveBooleanCondition(ifElseStatement.Condition, allowOrderedFloat: true) is { } condition)
 			{
 				context.Step("Use positive Boolean call condition", ifElseStatement);
 				var trueStatement = ifElseStatement.TrueStatement.Detach();
@@ -133,7 +133,7 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			return base.VisitConditionalExpression(expression);
 		}
 
-		static Expression? PositiveBooleanCondition(Expression condition, bool allowLocal = false)
+		static Expression? PositiveBooleanCondition(Expression condition, bool allowLocal = false, bool allowOrderedFloat = false)
 		{
 			// Swapping exclusive arms preserves the original call, including overloaded
 			// equality. Replacing it with an inequality operator would not do so.
@@ -141,11 +141,23 @@ namespace ICSharpCode.Decompiler.CSharp.Transforms
 			// snapshots keep their existing inlining and branch layout.
 			if (condition is not UnaryOperatorExpression { Operator: UnaryOperatorType.Not, Expression: var operand }
 				|| operand is not InvocationExpression && !(allowLocal && operand is IdentifierExpression local && local.GetILVariable() is { LoadCount: > 1 })
+					&& !(allowOrderedFloat && OrderedFloatCallComparison(operand))
 				|| condition.GetResolveResult() is not OperatorResolveResult { OperatorType: System.Linq.Expressions.ExpressionType.Not, UserDefinedOperatorMethod: null, IsLiftedOperator: false } result
 				|| !result.Type.IsKnownType(KnownTypeCode.Boolean) || !operand.GetResolveResult().Type.IsKnownType(KnownTypeCode.Boolean)
 				|| condition.Ancestors.OfType<LambdaExpression>().Any(lambda => lambda.Annotation<IL.ILFunction>()?.Kind == IL.ILFunctionKind.ExpressionTree))
 				return null;
 			return operand;
+		}
+
+		static bool OrderedFloatCallComparison(Expression expression)
+		{
+			// Preserve the original ordered comparison, including unordered NaNs.
+			// Only exchange two existing arms; never replace !(a >= b) by a < b.
+			return expression is BinaryOperatorExpression { Operator: BinaryOperatorType.GreaterThan or BinaryOperatorType.GreaterThanOrEqual or BinaryOperatorType.LessThan or BinaryOperatorType.LessThanOrEqual } comparison
+				&& (comparison.Left is InvocationExpression || comparison.Right is InvocationExpression)
+				&& comparison.GetResolveResult() is OperatorResolveResult { UserDefinedOperatorMethod: null, IsLiftedOperator: false } result
+				&& result.Type.IsKnownType(KnownTypeCode.Boolean) && result.Operands.Count == 2
+				&& result.Operands.All(value => value.Type.IsKnownType(KnownTypeCode.Single) || value.Type.IsKnownType(KnownTypeCode.Double));
 		}
 
 		public override AstNode VisitPropertyDeclaration(PropertyDeclaration propertyDeclaration)
