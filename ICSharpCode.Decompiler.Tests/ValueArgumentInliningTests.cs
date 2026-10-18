@@ -79,6 +79,63 @@ public class ValueArgumentInliningTests
     static void ValueReceiver(ValueSink sink,int key,Value a,Value b) { Value tmp=a+b; sink.Accept(key,tmp); }
     static void UnknownProducer(Sink sink,int key) { Value tmp=Make(); sink.Accept(key,tmp); }
     static void Boxing(Sink sink,int key,Value a,Value b) { Value tmp=a+b; sink.AcceptObject(key,tmp); }
+    static void TupleThenCall((Value, Value) pair, Sink sink) {
+        Value first=pair.Item1; Value second=pair.Item2; int key=Earlier(); sink.Accept(key,first); sink.Accept(key,second);
+    }
+    static void TupleThenConstant((Value, Value) pair, Sink sink) {
+        Value first=pair.Item1; Value second=pair.Item2; int key=42; sink.Accept(key,first); sink.Accept(key,second);
+    }
+    static void TupleThenField((Value, Value) pair, Sink sink, Value value) {
+        Value first=pair.Item1; Value second=pair.Item2; float x=value.X; sink.Accept(0,first); sink.Accept(1,second); Console.WriteLine(x);
+    }
+    static void TupleIncomplete((Value, Value, Value) pair, Sink sink) {
+        Value first=pair.Item1; Value second=pair.Item2; int key=Earlier(); sink.Accept(key,first); sink.Accept(key,second); sink.Accept(key,pair.Item3);
+    }
+    static void TupleReversed((Value, Value) pair, Sink sink) {
+        Value second=pair.Item2; Value first=pair.Item1; int key=Earlier(); sink.Accept(key,first); sink.Accept(key,second);
+    }
+    static void TupleDuplicate((Value, Value) pair, Sink sink) {
+        Value first=pair.Item1; Value second=pair.Item1; int key=Earlier(); sink.Accept(key,first); sink.Accept(key,second);
+    }
+    static void TupleMutation((Value, Value) pair, Sink sink) {
+        Value first=pair.Item1; pair.Item2=Make(); Value second=pair.Item2; int key=Earlier(); sink.Accept(key,first); sink.Accept(key,second);
+    }
+    static void TupleEscape((Value, Value) pair, Sink sink) {
+        Value first=pair.Item1; Value second=pair.Item2; int key=Earlier(); Console.WriteLine(pair); sink.Accept(key,first); sink.Accept(key,second);
+    }
+    static void EnumeratorBeforeInitializer(IEnumerable<(Value, Value)> input,Sink sink) {
+        using var enumerator=input.GetEnumerator();
+        Value saved=Make();
+        while(enumerator.MoveNext()) {
+            var pair=enumerator.Current; Value first=pair.Item1; Value second=pair.Item2; int key=Earlier();
+            sink.Accept(key,first); sink.Accept(key,second); sink.Accept(key,saved);
+        }
+    }
+    [Test]
+    public void DeconstructionDoesNotMoveAnInitializerAcrossEnumeratorAcquisition()
+    {
+        var dec=new CSharpDecompiler(typeof(ValueArgumentInliningTests).Assembly.Location,new DecompilerSettings {ThrowOnAssemblyResolveErrors=false});
+        var method=typeof(ValueArgumentInliningTests).GetMethod(nameof(EnumeratorBeforeInitializer),BindingFlags.Static|BindingFlags.NonPublic)!;
+        Assert.That(method,Is.Not.Null);
+        var tree=dec.Decompile(System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(method.MetadataToken));
+        Assert.That(tree.Descendants.OfType<ParenthesizedVariableDesignation>().Count(),Is.EqualTo(1),tree.ToString());
+        Assert.That(tree.Descendants.OfType<ForeachStatement>(),Is.Empty,tree.ToString());
+        Assert.That(tree.Descendants.OfType<WhileStatement>().Count(),Is.EqualTo(1),tree.ToString());
+        var calls=tree.Descendants.OfType<InvocationExpression>().Select(i=>i.ToString()).ToArray();
+        Assert.That(System.Array.FindIndex(calls,c=>c.EndsWith("GetEnumerator ()")),Is.LessThan(System.Array.FindIndex(calls,c=>c=="Make ()")),tree.ToString());
+        Assert.That(System.Array.FindIndex(calls,c=>c=="Make ()"),Is.LessThan(System.Array.FindIndex(calls,c=>c.EndsWith("MoveNext ()"))),tree.ToString());
+    }
+    [TestCase(nameof(TupleThenCall),true)] [TestCase(nameof(TupleThenConstant),true)] [TestCase(nameof(TupleThenField),true)]
+    [TestCase(nameof(TupleIncomplete),false)] [TestCase(nameof(TupleReversed),false)] [TestCase(nameof(TupleDuplicate),false)]
+    [TestCase(nameof(TupleMutation),false)] [TestCase(nameof(TupleEscape),false)]
+    public void CompleteTupleReadsCanEndBeforeAnUnrelatedAssignment(string name,bool expected)
+    {
+        var dec=new CSharpDecompiler(typeof(ValueArgumentInliningTests).Assembly.Location,new DecompilerSettings {ThrowOnAssemblyResolveErrors=false});
+        var method=typeof(ValueArgumentInliningTests).GetMethod(name,BindingFlags.Static|BindingFlags.NonPublic)!;
+        Assert.That(method,Is.Not.Null);
+        var tree=dec.Decompile(System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(method.MetadataToken));
+        Assert.That(tree.Descendants.OfType<ParenthesizedVariableDesignation>().Any(),Is.EqualTo(expected),tree.ToString());
+    }
     [TestCase(nameof(OperatorResult),true)] [TestCase(nameof(ArrayResult),true)] [TestCase(nameof(ArrayKey),true)]
     [TestCase(nameof(Copy),true)] [TestCase(nameof(GenericResult),true)] [TestCase(nameof(Chain),true)]
     [TestCase(nameof(EarlierThrows),false)] [TestCase(nameof(EarlierChanges),false)] [TestCase(nameof(EffectfulReceiver),false)]

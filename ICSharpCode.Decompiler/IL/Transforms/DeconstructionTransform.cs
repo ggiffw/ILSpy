@@ -879,14 +879,14 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 			while (MatchAssignment(block.Instructions.ElementAtOrDefault(pos), out var targetType, out var valueInst, out var addAssignment))
 			{
 				int index = FindIndex(valueInst, out var tupleAccessAdjustment);
-				if (index < 0 && allowUnrelatedAssignments)
+				if (index < 0 && (allowUnrelatedAssignments || CompleteTupleReads()))
 				{
 					// For a Deconstruct call the element list is fixed by the call's
 					// out-arguments, so an assignment whose value is unrelated to the
 					// deconstruction just ends the pattern and stays after the deconstruct
-					// instruction. (For tuples the elements are discovered from the
-					// assignments, so ending early would misread a suffix as the pattern:
-					// keep rejecting there.)
+					// instruction. Tuple reads can stop only after every element has
+					// been consumed, with no other use of any tuple node. Otherwise
+					// ending early could misread a suffix as the complete pattern.
 					break;
 				}
 				if (index <= previousIndex)
@@ -965,6 +965,14 @@ namespace ICSharpCode.Decompiler.IL.Transforms
 
 			anyAssignments = startPos != pos;
 			return true;
+
+			bool CompleteTupleReads()
+			{
+				return tupleRoot != null && deconstructionResults != null
+					&& previousIndex == deconstructionResults.Length - 1
+					&& deconstructionResults.All(v => v != null)
+					&& tupleNodes.Values.All(n => n.MatchedAccessCount == n.Variable.LoadCount + n.Variable.AddressCount);
+			}
 
 			int GetAssignmentIndex(ILInstruction inst)
 			{
