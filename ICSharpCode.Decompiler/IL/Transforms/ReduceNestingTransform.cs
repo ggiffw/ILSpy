@@ -186,6 +186,13 @@ namespace ICSharpCode.Decompiler.IL
 
 			Debug.Assert(ifInst != block.Instructions.Last());
 
+			// Keep a closed loop-entry failure check separate from its work. The
+			// single trailing back-edge becomes an implicit continuation in C#;
+			// wrapping that edge inside the successful arm obscures both the guard
+			// and the continuation. Only the IL-ordering heuristic is bypassed.
+			if (KeepLoopEntryThrowGuard(block, ifInst, continueTarget))
+				return;
+
 			// Keep a freshly constructed diagnostic exception in a guard before a
 			// function return arm. Only the condition is negated; neither arm
 			// crosses the condition or changes its selected execution path.
@@ -236,6 +243,18 @@ namespace ICSharpCode.Decompiler.IL
 			}
 
 			ConditionDetection.InvertIf(block, ifInst, context);
+		}
+
+		static bool KeepLoopEntryThrowGuard(Block block, IfInstruction guard, Block continueTarget)
+		{
+			if (block.Parent is not BlockContainer { Kind: ContainerKind.Loop } loop
+				|| loop.Blocks.Count != 1 || loop.EntryPoint != block || continueTarget != block
+				|| block.IncomingEdgeCount != 2 || block.Instructions.Count < 3 || block.Instructions[0] != guard
+				|| !guard.FalseInst.MatchNop() || !SemanticHelper.IsPure(guard.Condition.Flags)
+				|| Block.Unwrap(guard.TrueInst) is not Throw { Argument: NewObj { Arguments.Count: 0 } }
+				|| block.Instructions.Last() is not Branch latch || latch.TargetBlock != block)
+				return false;
+			return !block.Descendants.OfType<Branch>().Any(branch => branch != latch && branch.TargetBlock == block);
 		}
 
 		internal static bool MatchIntegerReturn(ILInstruction inst, out Leave leave)
