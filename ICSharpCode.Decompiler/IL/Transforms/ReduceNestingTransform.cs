@@ -287,6 +287,39 @@ namespace ICSharpCode.Decompiler.IL
 				&& Block.Unwrap(guard.TrueInst) is Throw { Argument: NewObj { Arguments.Count: 0 } };
 		}
 
+		static bool KeepGuardedNestedStrideLoop(Block block, IfInstruction guard, ILInstruction exit)
+		{
+			// Keep an empty-array gate around its single nested loop. Neither the
+			// length read, the condition, nor any loop initialization is moved.
+			if (block.Parent is not BlockContainer { Kind: ContainerKind.For } outer || outer.Blocks.Count != 3
+				|| outer.Blocks[1] != block || block.Instructions.Count != 3 || block.Instructions[1] != guard
+				|| outer.EntryPoint.IncomingEdgeCount != 2 || block.IncomingEdgeCount != 1
+				|| exit is not Branch tail || tail.TargetBlock != outer.Blocks.Last() || tail.TargetBlock.IncomingEdgeCount != 1
+				|| !outer.MatchConditionBlock(outer.EntryPoint, out _, out var work) || work != block
+				|| !outer.MatchIncrementBlock(tail.TargetBlock)
+				|| block.Instructions[0] is not StLoc { Value: LdLen { ResultType: StackType.I4 } length } cached
+				|| !cached.Variable.Type.IsKnownType(KnownTypeCode.Int32) || !guard.FalseInst.MatchNop()
+				|| guard.Condition is not Comp { Kind: ComparisonKind.GreaterThanOrEqual, Sign: Sign.Signed, InputType: StackType.I4, IsLifted: false } test
+				|| !test.Left.MatchLdLoc(cached.Variable) || !test.Right.MatchLdcI4(1)
+				|| guard.TrueInst is not Block { FinalInstruction: Nop } arm || arm.Instructions.Count < 2
+				|| arm.Instructions.Last() is not BlockContainer { Kind: ContainerKind.DoWhile } inner || inner.Blocks.Count != 2
+				|| inner.EntryPoint.IncomingEdgeCount != 2 || inner.Blocks.Last().IncomingEdgeCount != 1
+				|| inner.EntryPoint.Instructions.LastOrDefault() is not Branch latch || latch.TargetBlock != inner.Blocks.Last()
+				|| !inner.MatchConditionBlock(inner.Blocks.Last(), out _, out var innerBody) || innerBody != inner.EntryPoint
+				|| inner.EntryPoint.Instructions.SecondToLastOrDefault() is not StLoc update
+				|| update.Value is not BinaryNumericInstruction { Operator: BinaryNumericOperator.Add, CheckForOverflow: false, IsLifted: false, LeftInputType: StackType.I4, RightInputType: StackType.I4 } add
+				|| !add.Left.MatchLdLoc(update.Variable) || add.Right is not LdcI4 { Value: > 0 }
+				|| update.Variable.Kind != VariableKind.Local || !update.Variable.Type.IsKnownType(KnownTypeCode.Int32)
+				|| update.Variable.AddressCount != 0 || update.Variable.CaptureScope != null || update.Variable.StoreInstructions.Count != 2)
+				return false;
+			var prefix = arm.Instructions.SkipLast(1).ToArray();
+			return prefix.All(inst => inst is StLoc store && store.Variable.Type.IsKnownType(KnownTypeCode.Int32)
+					&& SemanticHelper.IsPure(store.Value.Flags))
+				&& prefix.OfType<StLoc>().Count(store => store.Variable == update.Variable && store.Value is LdcI4 { Value: >= 0 }) == 1
+				&& !arm.Descendants.OfType<Branch>().Any(branch => branch.TargetBlock.Parent == outer)
+				&& !arm.Descendants.OfType<Leave>().Any(leave => leave.TargetContainer == outer);
+		}
+
 		internal static bool MatchIntegerReturn(ILInstruction inst, out Leave leave)
 		{
 			if (inst is Block { FinalInstruction: Nop } block && block.Instructions.Count == 1)
@@ -318,6 +351,8 @@ namespace ICSharpCode.Decompiler.IL
 		/// </summary>
 		private bool ReduceNesting(Block block, IfInstruction ifInst, ILInstruction exitInst)
 		{
+			if (KeepGuardedNestedStrideLoop(block, ifInst, exitInst))
+				return false;
 			// start tallying stats for heuristics from then and else-if blocks
 			int maxStatements = 0, maxDepth = 0;
 			UpdateStats(ifInst.TrueInst, ref maxStatements, ref maxDepth);
