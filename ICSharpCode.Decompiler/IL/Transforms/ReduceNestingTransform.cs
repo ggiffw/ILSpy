@@ -190,7 +190,8 @@ namespace ICSharpCode.Decompiler.IL
 			// single trailing back-edge becomes an implicit continuation in C#;
 			// wrapping that edge inside the successful arm obscures both the guard
 			// and the continuation. Only the IL-ordering heuristic is bypassed.
-			if (KeepLoopEntryThrowGuard(block, ifInst, continueTarget))
+			if (KeepLoopEntryThrowGuard(block, ifInst, continueTarget)
+				|| KeepStructuredLoopThrowGuard(block, ifInst, continueTarget))
 				return;
 
 			// Keep a freshly constructed diagnostic exception in a guard before a
@@ -255,6 +256,35 @@ namespace ICSharpCode.Decompiler.IL
 				|| block.Instructions.Last() is not Branch latch || latch.TargetBlock != block)
 				return false;
 			return !block.Descendants.OfType<Branch>().Any(branch => branch != latch && branch.TargetBlock == block);
+		}
+
+		static bool KeepStructuredLoopThrowGuard(Block block, IfInstruction guard, Block continueTarget)
+		{
+			// A closed structured loop has one final transfer to its condition or
+			// increment. Keeping a group of validation guards flat lets that transfer
+			// remain implicit without moving or repeating any array length reads.
+			if (block.Parent is not BlockContainer loop || loop.Kind is not (ContainerKind.DoWhile or ContainerKind.For)
+				|| continueTarget != loop.Blocks.Last() || block == continueTarget
+				|| loop.EntryPoint.IncomingEdgeCount != 2 || continueTarget.IncomingEdgeCount != 1
+				|| !IsStructuredValidationGuard(guard)
+				|| block.Instructions.OfType<IfInstruction>().Count(IsStructuredValidationGuard) < 2
+				|| block.Instructions.Last() is not Branch latch || latch.TargetBlock != continueTarget
+				|| block.Descendants.OfType<Branch>().Any(branch => branch != latch))
+				return false;
+			if (loop.Kind == ContainerKind.DoWhile)
+				return loop.Blocks.Count == 2 && loop.EntryPoint == block;
+			return loop.Blocks.Count == 3 && loop.Blocks[1] == block && block.IncomingEdgeCount == 1
+				&& loop.MatchConditionBlock(loop.EntryPoint, out _, out var body) && body == block
+				&& loop.MatchIncrementBlock(continueTarget);
+		}
+
+		static bool IsStructuredValidationGuard(IfInstruction guard)
+		{
+			return guard.FalseInst.MatchNop()
+				&& guard.Condition is Comp { InputType: StackType.I4 or StackType.I8, IsLifted: false }
+				&& SemanticHelper.IsPure(guard.Condition.Flags & ~InstructionFlags.MayThrow)
+				&& !guard.Condition.Descendants.Any(inst => (inst.DirectFlags & InstructionFlags.MayThrow) != 0 && inst is not LdLen)
+				&& Block.Unwrap(guard.TrueInst) is Throw { Argument: NewObj { Arguments.Count: 0 } };
 		}
 
 		internal static bool MatchIntegerReturn(ILInstruction inst, out Leave leave)
