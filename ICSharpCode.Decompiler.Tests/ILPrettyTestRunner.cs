@@ -52,6 +52,12 @@ namespace ICSharpCode.Decompiler.Tests
 		}
 
 		[Test]
+		public async Task NativeArrayIndices()
+		{
+			await Run();
+		}
+
+		[Test]
 		public async Task Issue3320()
 		{
 			await Run();

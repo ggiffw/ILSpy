@@ -3456,6 +3456,16 @@ namespace ICSharpCode.Decompiler.CSharp
 
 		TranslatedExpression ConvertArrayIndex(TranslatedExpression input, StackType stackType, bool allowIntPtr)
 		{
+			if (!allowIntPtr && settings.NativeIntegers && stackType == StackType.I
+				&& input.Type.GetSign() == Sign.Unsigned
+				&& input.Type.GetStackType() is StackType.I or StackType.I8)
+			{
+				// CIL array access consumes native index bits directly. C# instead
+				// checks ulong/nuint indices when converting them to a native signed
+				// index. Preserve the unchecked native value so a high bit reaches
+				// the array bounds/null check rather than causing numeric overflow.
+				return input.ConvertTo(SpecialType.NInt, this, checkForOverflow: false);
+			}
 			if (input.Type.GetSize() > stackType.GetSize())
 			{
 				// truncate oversized result
